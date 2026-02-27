@@ -19,6 +19,9 @@ from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QOpenGLContext
 from PyQt6.QtOpenGL import QOpenGLFunctions_2_0
 
+# Custom imports
+from crystal import generate_FCC
+
 
 class SphereGraph(Q3DScatter):
     def __init__(self):
@@ -338,45 +341,14 @@ class DesignLattice(QMainWindow):
     
     def generate_fcc_placement(self):
         """Generate FCC (Face-Centered Cubic) lattice."""
-        # FCC has basis vectors and atoms at fractional coordinates
-        a = self.lattice_a
+
+        domain = self.graph.limits
+        lattice_prms = np.array([self.lattice_a, self.lattice_b, self.lattice_c])
+        euler_angles = np.radians(np.array([self.euler_alpha, self.euler_beta, 
+                self.euler_gamma]))
+        coords = generate_FCC(domain, lattice_prms, euler_angles)
         
-        # FCC conventional cell basis vectors
-        basis_vectors = np.array([
-            [a, 0, 0],
-            [0, a, 0],
-            [0, 0, a]
-        ])
-        
-        # FCC atom positions in conventional cell (fractional coordinates)
-        fcc_positions = np.array([
-            [0.0, 0.0, 0.0],
-            [0.5, 0.5, 0.0],
-            [0.5, 0.0, 0.5],
-            [0.0, 0.5, 0.5]
-        ])
-        
-        # Generate lattice by replicating cells
-        coords = []
-        nx, ny, nz = 4, 3, 3
-        for i in range(-nx, nx):
-            for j in range(-ny, ny):
-                for k in range(-nz, nz):
-                    cell_origin = np.array([i, j, k]) @ basis_vectors
-                    for frac_pos in fcc_positions:
-                        atom_pos = cell_origin + frac_pos @ basis_vectors
-                        coords.append(atom_pos)
-        
-        coords = np.array(coords)
-        
-        # Apply rotation
-        coords = self.apply_euler_rotation(coords)
-        
-        # Filter points within domain
-        coords = self.filter_in_domain(coords)
-        
-        if len(coords) > 0:
-            self.update_data(coords)
+        self.update_data(coords)
     
     def generate_hcp_placement(self):
         """Generate HCP (Hexagonal Close Packed) lattice."""
