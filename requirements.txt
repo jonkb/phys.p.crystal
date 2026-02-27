@@ -1,0 +1,2 @@
+# For 3D rendering
+PyQt6
