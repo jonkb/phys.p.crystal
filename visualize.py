@@ -20,7 +20,7 @@ from PyQt6.QtGui import QOpenGLContext
 from PyQt6.QtOpenGL import QOpenGLFunctions_2_0
 
 # Custom imports
-from crystal import generate_FCC
+from crystal import generate_FCC, generate_HCP
 
 
 class SphereGraph(Q3DScatter):
@@ -326,9 +326,9 @@ class DesignLattice(QMainWindow):
         if self.placement_method == 'random':
             self.generate_random_placement()
         elif self.placement_method == 'fcc':
-            self.generate_fcc_placement()
+            self.generate_crystal("FCC")
         elif self.placement_method == 'hcp':
-            self.generate_hcp_placement()
+            self.generate_crystal("HCP")
     
     def generate_random_placement(self):
         """Generate random sphere placement within the domain."""
@@ -339,98 +339,24 @@ class DesignLattice(QMainWindow):
         new_coords = np.array([xnew, ynew, znew]).T
         self.update_data(new_coords)
     
-    def generate_fcc_placement(self):
-        """Generate FCC (Face-Centered Cubic) lattice."""
-
+    def generate_crystal(self, lattice_type):
+        """Generate a crystal lattice
+        lattice_type (str): "HCP" or "FCC"
+        """
         domain = self.graph.limits
         lattice_prms = np.array([self.lattice_a, self.lattice_b, self.lattice_c])
         euler_angles = np.radians(np.array([self.euler_alpha, self.euler_beta, 
                 self.euler_gamma]))
-        coords = generate_FCC(domain, lattice_prms, euler_angles)
+        
+        if lattice_type == "FCC":
+            coords = generate_FCC(domain, lattice_prms, euler_angles)
+        elif lattice_type == "HCP":
+            coords = generate_HCP(domain, lattice_prms, euler_angles)
+        else:
+            print("ERROR: Unrecognized lattice_type")
         
         self.update_data(coords)
-    
-    def generate_hcp_placement(self):
-        """Generate HCP (Hexagonal Close Packed) lattice."""
-        a = self.lattice_a
-        c = self.lattice_c
-        
-        # HCP lattice parameters (ideal ratio c/a = sqrt(8/3))
-        # HCP basis vectors
-        basis_vectors = np.array([
-            [a, 0, 0],
-            [-a/2, a*np.sqrt(3)/2, 0],
-            [0, 0, c]
-        ])
-        
-        # HCP atom positions in conventional cell
-        hcp_positions = np.array([
-            [0.0, 0.0, 0.0],
-            [1/3, 1/3, 0.5]
-        ])
-        
-        # Generate lattice
-        coords = []
-        nx, ny, nz = 4, 4, 3
-        for i in range(-nx, nx):
-            for j in range(-ny, ny):
-                for k in range(-nz, nz):
-                    cell_origin = np.array([i, j, k]) @ basis_vectors
-                    for frac_pos in hcp_positions:
-                        atom_pos = cell_origin + frac_pos @ basis_vectors
-                        coords.append(atom_pos)
-        
-        coords = np.array(coords)
-        
-        # Apply rotation
-        coords = self.apply_euler_rotation(coords)
-        
-        # Filter points within domain
-        coords = self.filter_in_domain(coords)
-        
-        if len(coords) > 0:
-            self.update_data(coords)
-    
-    def apply_euler_rotation(self, coords):
-        """Apply ZYZ Euler angle rotation to coordinates."""
-        alpha = np.radians(self.euler_alpha)
-        beta = np.radians(self.euler_beta)
-        gamma = np.radians(self.euler_gamma)
-        
-        # ZYZ Euler angle rotation matrices
-        Rz_alpha = np.array([
-            [np.cos(alpha), -np.sin(alpha), 0],
-            [np.sin(alpha), np.cos(alpha), 0],
-            [0, 0, 1]
-        ])
-        
-        Ry_beta = np.array([
-            [np.cos(beta), 0, np.sin(beta)],
-            [0, 1, 0],
-            [-np.sin(beta), 0, np.cos(beta)]
-        ])
-        
-        Rz_gamma = np.array([
-            [np.cos(gamma), -np.sin(gamma), 0],
-            [np.sin(gamma), np.cos(gamma), 0],
-            [0, 0, 1]
-        ])
-        
-        # Combined rotation: R = Rz(gamma) * Ry(beta) * Rz(alpha)
-        R = Rz_gamma @ Ry_beta @ Rz_alpha
-        
-        return coords @ R.T
-    
-    def filter_in_domain(self, coords):
-        """Filter coordinates to keep only those within the domain."""
-        xlim, ylim, zlim = self.graph.limits
-        mask = (
-            (coords[:, 0] >= xlim[0]) & (coords[:, 0] <= xlim[1]) &
-            (coords[:, 1] >= ylim[0]) & (coords[:, 1] <= ylim[1]) &
-            (coords[:, 2] >= zlim[0]) & (coords[:, 2] <= zlim[1])
-        )
-        return coords[mask]
-    
+
     def on_placement_method_changed(self, method_text):
         """Handle placement method change."""
         method_map = {"Random": "random", "FCC": "fcc", "HCP": "hcp"}

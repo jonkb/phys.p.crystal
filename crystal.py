@@ -12,6 +12,11 @@ points_FCC = np.array([
     [0.5, 0.0, 0.5],
     [0.0, 0.5, 0.5]
 ])
+# Coordinates of points in a HCP lattice
+points_HCP = np.array([
+    [0.0, 0.0, 0.0],
+    [2/3, 1/3, 1/2]
+])
 
 def euler_R(euler_angles):
     """ Convert Euler angles to a rotation matrix
@@ -46,7 +51,7 @@ def euler_R(euler_angles):
 
 def generate_FCC(domain, lattice_prms, euler_angles=np.zeros(3)):
     """ Generate coordinates of an FCC lattice filling the given domain
-
+    
     domain (3x2 np array): [(xmin, xmax), (ymin, ymax), (zmin, zmax)]
     lattice_prms (length 3 iterable): [a, b, c]
     euler angles (length 3 iterable): [phi1, Phi, phi2] Bunge euler angles
@@ -87,6 +92,58 @@ def generate_FCC(domain, lattice_prms, euler_angles=np.zeros(3)):
     coords_sub = coords[in_domain]
     
     return coords_sub
+
+def generate_HCP(domain, lattice_prms, euler_angles=np.zeros(3)):
+    """ Generate coordinates of an HCP lattice filling the given domain
+    
+    domain (3x2 np array): [(xmin, xmax), (ymin, ymax), (zmin, zmax)]
+    lattice_prms (length 3 iterable): [a, b, c]  - for HCP typically a==b
+    euler angles (length 3 iterable): [phi1, Phi, phi2] Bunge euler angles
+    """
+    domain = np.array(domain)
+    lattice_prms = np.array(lattice_prms)
+    a, b, c = lattice_prms
+    if a != b:
+        print("WARNING: Ignoring b. For HCP, a=b")
+    R = euler_R(euler_angles)
+
+    # lattice vectors in the crystal frame (rows)
+    h1 = np.array([a, 0.0, 0.0])
+    h2 = np.array([-a/2, a * np.sqrt(3)/2, 0.0])
+    h3 = np.array([0.0, 0.0, c])
+    basis_vectors = np.vstack([h1, h2, h3]) @ R.T
+
+    # determine longest diagonal of domain
+    lengths = domain[:,1] - domain[:,0]
+    L = np.sqrt(np.sum(lengths**2))
+    # number of cells in each direction (approximate using a,b,c)
+    #   Using 2*L as a buffer factor because I was missing the corners before
+    #   (Really inefficient...)
+    N_cells = np.ceil(2*L / np.array([a, h2[1], c])).astype(int)
+    N_ppc = points_HCP.shape[0]
+
+    coords = np.empty((np.prod(N_cells)*N_ppc, 3))
+    for ix1 in range(N_cells[0]):
+        for ix2 in range(N_cells[1]):
+            for ix3 in range(N_cells[2]):
+                cell_origin = np.array([ix1, ix2, ix3]) @ basis_vectors
+                cell_points = cell_origin + points_HCP @ basis_vectors
+                ix_insert = (ix1*N_cells[1]*N_cells[2] + ix2*N_cells[2] + ix3)*N_ppc
+                coords[ix_insert:ix_insert+N_ppc,:] = cell_points
+
+    # Translate lattice to centre it over the domain
+    domain_center = np.mean(domain, 1)
+    #lattice_center = np.mean(coords, axis=0)
+    #lattice_center = (np.ones(3) * L/2) @ R.T # Could try to make this line up nicely
+    lattice_center = N_cells @ basis_vectors/2
+    trnsl_vec = domain_center - lattice_center
+    coords += trnsl_vec
+
+    # Remove points outside of the domain
+    in_domain = np.all((coords >= domain[:,0]) & (coords <= domain[:,1]), axis=1)
+    coords_sub = coords[in_domain]
+    return coords_sub
+
 
 if __name__ == "__main__":
     # Testing
