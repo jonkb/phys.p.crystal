@@ -20,7 +20,7 @@ from PyQt6.QtGui import QOpenGLContext
 from PyQt6.QtOpenGL import QOpenGLFunctions_2_0
 
 # Custom imports
-from crystal import generate_FCC, generate_HCP
+import crystal
 
 
 class SphereGraph(Q3DScatter):
@@ -340,7 +340,7 @@ class DesignLattice(QMainWindow):
         self.update_data(new_coords)
     
     def generate_crystal(self, lattice_type):
-        """Generate a crystal lattice
+        """ Generate a crystal lattice
         lattice_type (str): "HCP" or "FCC"
         """
         domain = self.graph.limits
@@ -348,12 +348,7 @@ class DesignLattice(QMainWindow):
         euler_angles = np.radians(np.array([self.euler_alpha, self.euler_beta, 
                 self.euler_gamma]))
         
-        if lattice_type == "FCC":
-            coords = generate_FCC(domain, lattice_prms, euler_angles)
-        elif lattice_type == "HCP":
-            coords = generate_HCP(domain, lattice_prms, euler_angles)
-        else:
-            print("ERROR: Unrecognized lattice_type")
+        coords = crystal.generate_lattice(lattice_type, domain, lattice_prms, euler_angles)
         
         self.update_data(coords)
 
