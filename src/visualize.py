@@ -24,9 +24,9 @@ from PyQt6.QtOpenGL import QOpenGLFunctions_2_0
 import crystal
 
 script_dir = os.path.dirname(os.path.abspath(__file__))
-unit_plane_path = os.path.join(script_dir, "unit_plane.obj")
+unit_plane_path = os.path.join(script_dir, "../res/unit_plane.obj")
 
-texture_red_path = os.path.join(script_dir, "tex_red.png")
+texture_red_path = os.path.join(script_dir, "../res/tex_red.png")
 
 def gen_texture():
     """Generate texture image for a plane (semi-transparent red)"""
