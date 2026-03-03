@@ -340,7 +340,7 @@ if __name__ == "__main__":
     sym.pprint(mod.qdd)
     # Test
     x0 = jnp.array([1.0, 0.0, 0.0, 2.0])
-    xd = mod(0.0, x0)
+    xd = mod(0.0, x0, [])
     print(306, xd)
 
     def L(q, qd):

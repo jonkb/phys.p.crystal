@@ -1,2 +1,6 @@
 # For 3D rendering
 PyQt6
+jax
+diffrax
+equinox
+sympy # Not used

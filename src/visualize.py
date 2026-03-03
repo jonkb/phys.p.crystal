@@ -4,10 +4,12 @@
 import sys
 import os
 import numpy as np
+from datetime import datetime
 from PyQt6.QtWidgets import (
     QApplication, QMainWindow, QWidget, 
     QVBoxLayout, QHBoxLayout, QGridLayout, QPushButton, 
-    QLabel, QDoubleSpinBox, QSpinBox, QFrame, QComboBox
+    QLabel, QDoubleSpinBox, QSpinBox, QFrame, QComboBox,
+    QFileDialog, QSlider
 )
 from PyQt6.QtDataVisualization import (
     Q3DScatter, QScatterDataProxy, QScatter3DSeries, 
@@ -23,10 +25,10 @@ from PyQt6.QtOpenGL import QOpenGLFunctions_2_0
 # Custom imports
 import crystal
 
-script_dir = os.path.dirname(os.path.abspath(__file__))
-unit_plane_path = os.path.join(script_dir, "../res/unit_plane.obj")
+src_dir = os.path.dirname(os.path.abspath(__file__))
+unit_plane_path = os.path.join(src_dir, "../res/unit_plane.obj")
 
-texture_red_path = os.path.join(script_dir, "../res/tex_red.png")
+texture_red_path = os.path.join(src_dir, "../res/tex_red.png")
 
 def gen_texture():
     """Generate texture image for a plane (semi-transparent red)"""
@@ -129,6 +131,21 @@ class DesignLattice(QMainWindow):
         
         # Create left panel for controls
         left_panel = QWidget()
+        self.setup_left_panel(left_panel)
+        
+        # Add panels to main layout
+        main_layout.addWidget(left_panel, 0)  # Left panel with minimal width
+        main_layout.addWidget(self.graph_container, 1)  # Graph takes remaining space
+        
+        self.setCentralWidget(central_widget)
+        
+        # Initial scene
+        self.generate_spheres()
+        self.setup_plane()
+        self.line_visible = False
+    
+    def setup_left_panel(self, left_panel):
+        """Set up the left panel layout"""
         left_layout = QVBoxLayout(left_panel)
         left_layout.setContentsMargins(10, 10, 10, 10)
         
@@ -145,16 +162,11 @@ class DesignLattice(QMainWindow):
         # Add stretch to push controls to the top
         left_layout.addStretch()
         
-        # Add panels to main layout
-        main_layout.addWidget(left_panel, 0)  # Left panel with minimal width
-        main_layout.addWidget(self.graph_container, 1)  # Graph takes remaining space
-        
-        self.setCentralWidget(central_widget)
-        
-        # Initial scene
-        self.generate_spheres()
-        self.setup_plane()
-        self.line_visible = False
+        # Add save button at the bottom of left panel
+        self.save_button = QPushButton("Save Positions")
+        self.save_button.setFixedHeight(40)
+        self.save_button.clicked.connect(self.save_positions)
+        left_layout.addWidget(self.save_button)
 
     def hline(self, parent):
         # Add a horizontal dividing line to parent
@@ -625,10 +637,17 @@ class DesignLattice(QMainWindow):
         self.generate_spheres()
 
     def update_data(self, data_np):
-        """Standard method to accept a (N, 3) NumPy array."""
+        """Standard method to accept a (N, 3) NumPy array.
+
+        The latest coordinates are stored in ``self.current_coords`` so that they
+        can be exported when the save button is pressed.
+        """
         if data_np.ndim != 2 or data_np.shape[1] != 3:
             print("Invalid shape. Needs (N, 3)")
             return
+
+        # remember for export
+        self.current_coords = data_np.copy()
 
         new_proxy = QScatterDataProxy()
         items = []
@@ -721,6 +740,117 @@ class DesignLattice(QMainWindow):
         self.update_plane_orientation()
         self.draw_line()
 
+    def save_positions(self):
+        """Open dialog then write current point positions to CSV file.
+
+        Defaults the dialog to the ``data`` directory adjacent to the
+        repository root.  If the selected path doesn't end in ``.csv`` the
+        extension is appended automatically.
+        """
+        # ensure there is something to save
+        coords = getattr(self, 'current_coords', None)
+        if coords is None or coords.size == 0:
+            return
+        
+        # Default save location & filename 
+        default_dir = os.path.abspath(os.path.join(src_dir, "..", "data"))
+        stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+        default_name = f"positions_{stamp}.csv"
+        default_path = os.path.join(default_dir, default_name)
+        # Prompt for filename
+        fname, _ = QFileDialog.getSaveFileName(self, "Save positions",
+                default_path, "CSV Files (*.csv)")
+        if not fname:
+            return
+        if not fname.lower().endswith('.csv'):
+            fname += '.csv'
+        try:
+            np.savetxt(fname, coords, delimiter=',', header='x,y,z', comments='')
+            print("Positions saved to:")
+            print(fname)
+        except Exception as e:
+            print(f"Failed to save file: {e}")
+
+
+
+
+class SolPlotter(QMainWindow):
+    """Display a time‑dependent solution of sphere positions.
+
+    Parameters
+    ----------
+    solution : np.ndarray, shape (Nt, Nx, 3)
+        Coordinates of Nx spheres for Nt time steps.
+    t_max : int
+        Maximum value for the slider (usually ``Nt-1``).
+    """
+    def __init__(self, solution, t_max):
+        super().__init__()
+        assert isinstance(solution, np.ndarray)
+        assert solution.ndim == 3 and solution.shape[2] == 3
+        self.solution = solution
+        self.t_max = t_max
+        self.Nt = solution.shape[0]
+
+        self.setWindowTitle("Solution Plotter")
+        self.resize(1920, 1080)
+
+        # create 3D graph
+        self.graph = SphereGraph()
+        # adjust axes to cover all data at once
+        all_pts = solution.reshape(-1, 3)
+        mins = all_pts.min(axis=0)
+        maxs = all_pts.max(axis=0)
+        self.graph.limits = np.array([
+            (mins[0], maxs[0]),
+            (mins[1], maxs[1]),
+            (mins[2], maxs[2])
+        ])
+        self.graph.axes_limits(self.graph.limits)
+
+        container = QWidget.createWindowContainer(self.graph)
+
+        # slider and label
+        self.slider = QSlider(Qt.Orientation.Horizontal)
+        self.slider.setRange(0, self.Nt-1)
+        self.slider.sliderReleased.connect(self.on_slider_released)
+        self.slider_label = QLabel("0")
+
+        slider_layout = QHBoxLayout()
+        slider_layout.addWidget(QLabel("Frame:"))
+        slider_layout.addWidget(self.slider, 1)
+        slider_layout.addWidget(self.slider_label)
+
+        # assemble main layout
+        central = QWidget()
+        main_layout = QVBoxLayout(central)
+        main_layout.addWidget(container, 1)
+        main_layout.addLayout(slider_layout)
+        self.setCentralWidget(central)
+
+        # show initial timestep
+        self.show_timestep(0)
+
+    def on_slider_released(self):
+        val = self.slider.value()
+        self.slider_label.setText(str(val))
+        self.show_timestep(val)
+
+    def show_timestep(self, idx):
+        idx = int(idx)
+        if idx < 0:
+            idx = 0
+        if idx >= self.Nt:
+            idx = self.Nt - 1
+        coords = self.solution[idx]
+        proxy = QScatterDataProxy()
+        items = [
+            QScatterDataItem(QVector3D(float(x), float(y), float(z)))
+            for x, y, z in coords
+        ]
+        proxy.addItems(items)
+        self.graph.series.setDataProxy(proxy)
+
 
 def print_gpu_info():
     """Diagnostic check for GPU"""
@@ -745,10 +875,7 @@ def print_gpu_info():
     else:
         print("No active OpenGL context. Make sure to call this after window.show()!")
 
-if __name__ == "__main__":
-    # Fix for Linux OpenGL environments
-    QApplication.setAttribute(Qt.ApplicationAttribute.AA_ShareOpenGLContexts)
-    
+def app_design_lattice():
     app = QApplication(sys.argv)
     viewer = DesignLattice()
     window_geometry = viewer.geometry()
@@ -757,3 +884,19 @@ if __name__ == "__main__":
     print_gpu_info()
 
     sys.exit(app.exec())
+
+def app_plot_sol(data, t_max):
+    """Plot the given solution"""
+    app = QApplication(sys.argv)
+    viewer = SolPlotter(data, t_max=t_max)
+    viewer.show()
+    sys.exit(app.exec())
+
+if __name__ == "__main__":
+    # Fix for Linux OpenGL environments
+    QApplication.setAttribute(Qt.ApplicationAttribute.AA_ShareOpenGLContexts)
+    #app_design_lattice()
+
+    data = np.random.rand(20, 100, 3)
+    t_max = 10
+    app_plot_sol(data, t_max)
