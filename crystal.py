@@ -156,20 +156,97 @@ def generate_lattice(lattice_type, domain, lattice_prms, euler_angles):
     
     return coords_sub
 
-def miller_plane(miller, lattice_prms, euler_angles=np.zeros(3)):
-    """ Convert miller indices to basis vectors that span the plane in physcial
+def bravais_miller(bravais, isplane):
+    """ Convert Miller-Bravais indices for hexagonal crystals to equivalent
+    Miller indices
+
+    isplane (bool): True if these are indices representing a plane. False if
+        the indices indicate a direction vector
+    """
+
+    bravais = np.array(bravais)
+    if isplane:
+        # Just ignore the third index
+        return bravais[[0,1,3]]
+    else:
+        # Basis vectors (Miller-Bravais)
+        h1 = np.array([1.0, 0.0, 0.0])
+        h2 = np.array([-1/2, np.sqrt(3)/2, 0.0])
+        h3 = np.array([-1/2, -np.sqrt(3)/2, 0.0])
+        h4 = np.array([0.0, 0.0, 1.0])
+        bravais_basis = np.vstack([h1, h2, h3, h4])
+        # Basis vectors (Miller)
+        miller_basis = HCP_basis([1,1,1])
+        # Calculate the direction
+        vec = bravais @ bravais_basis
+        # Project onto miller basis
+        sol = np.linalg.lstsq(miller_basis.T, vec)
+        if not np.isclose(np.sum(sol[1]), 0.0):
+            print("WARNING: residual remained after projection to miller"
+                f" indices. Residuals = {sol[1]}")
+        return sol[0]
+
+def miller_plane(lattice_type, miller, lattice_prms, euler_angles=np.zeros(3)):
+    """ Convert miller indices to a normal vector to the plane in physcial
     coordinates
     
     miller (length 3 iterable): [i, j, k] Miller indices
     lattice_prms (length 3 iterable): [a, b, c]
     euler angles (length 3 iterable): [phi1, Phi, phi2] Bunge euler angles
-    """
-    pass
 
+    Returns normal vector ((3,) np array)
+    """
+    miller = np.array(miller)
+    assert miller.size == 3
+    lattice_prms = np.array(lattice_prms)
+    if lattice_type == "FCC":
+        # Principal direction vectors
+        basis_vectors = FCC_basis(lattice_prms, euler_angles)
+    elif lattice_type == "HCP":
+        # Principal direction vectors
+        basis_vectors = HCP_basis(lattice_prms, euler_angles)
+    else:
+        print("ERROR: Unrecognized lattice_type")
+    
+    # If any index is zero, then we know one of the spanning vectors is the
+    #   basis vector along that axis.
+    ix_zeros = np.where(miller == 0)[0]
+    if ix_zeros.size == 3:
+        msg = "ERROR: The indices cannot all be zero"
+        print(msg)
+        return msg
+    elif ix_zeros.size == 2:
+        spanning_vectors = basis_vectors[ix_zeros,:]
+    elif ix_zeros.size == 1:
+        ix0 = ix_zeros[0]
+        v1 = basis_vectors[ix0,:]
+        ix_nonzero = np.arange(miller.size) != ix0
+        # Where the plane intercepts the two axes it intercepts
+        fractional_intercepts = 1/miller[ix_nonzero,np.newaxis] 
+        intercepts = fractional_intercepts * basis_vectors[ix_nonzero,:]
+        # The vector connecting the intercepts is in the plane
+        v2 = intercepts[1,:] - intercepts[0,:]
+        spanning_vectors = np.vstack([v1, v2])
+    else:
+        # Where the plane intercepts the three axes
+        intercepts = 1/miller * basis_vectors
+        # The vector connecting the intercepts is in the plane
+        v1 = intercepts[1,:] - intercepts[0,:]
+        v2 = intercepts[2,:] - intercepts[0,:]
+        spanning_vectors = np.vstack([v1, v2])
+    # Find normal vector with cross product
+    N = np.cross(spanning_vectors[0,:], spanning_vectors[1,:])
+    # Normalize
+    return N / np.linalg.norm(N)
 
 if __name__ == "__main__":
     # Testing
 
+    #print(bravais_miller([1, 2, -3, 0], False))
+    lattice_prms = np.array([8, 6, 4])
+    print(miller_plane("FCC", [1,1,0], lattice_prms))
+
+    quit()
     domain = np.array([(-8, 8), (-5, 5), (-3, 3)])
     lattice_prms = np.array([8, 6, 4])
     euler_angles = np.array([0.1, 0, 0]) #np.pi/6, np.pi/4])

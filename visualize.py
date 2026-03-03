@@ -2,6 +2,7 @@
 """
 
 import sys
+import os
 import numpy as np
 from PyQt6.QtWidgets import (
     QApplication, QMainWindow, QWidget, 
@@ -10,9 +11,9 @@ from PyQt6.QtWidgets import (
 )
 from PyQt6.QtDataVisualization import (
     Q3DScatter, QScatterDataProxy, QScatter3DSeries, 
-    QScatterDataItem, QAbstract3DSeries
+    QScatterDataItem, QAbstract3DSeries, QCustom3DItem
 )
-from PyQt6.QtGui import QVector3D, QColor
+from PyQt6.QtGui import QVector3D, QColor, QQuaternion
 from PyQt6.QtCore import Qt
 
 # For diagnostics
@@ -22,6 +23,18 @@ from PyQt6.QtOpenGL import QOpenGLFunctions_2_0
 # Custom imports
 import crystal
 
+script_dir = os.path.dirname(os.path.abspath(__file__))
+unit_plane_path = os.path.join(script_dir, "unit_plane.obj")
+
+plane_texture_path = os.path.join(script_dir, "plane_tex.png")
+
+def gen_plane_texture():
+    """Generate texture image for a plane (semi-transparent red)"""
+    if not os.path.exists(plane_texture_path):
+        from PyQt6.QtGui import QImage, QColor
+        tex = QImage(4, 4, QImage.Format.Format_RGBA8888)
+        tex.fill(QColor(255, 0, 0, 120))
+        tex.save(plane_texture_path)
 
 class SphereGraph(Q3DScatter):
     def __init__(self):
@@ -119,7 +132,7 @@ class DesignLattice(QMainWindow):
         # Add Placement Method Selection
         self.setup_placement_controls(left_layout)
         
-        self.hline(left_layout)
+        #self.hline(left_layout)
         
         # Add stretch to push controls to the top
         left_layout.addStretch()
@@ -130,8 +143,9 @@ class DesignLattice(QMainWindow):
         
         self.setCentralWidget(central_widget)
         
-        # Initial render
+        # Initial scene
         self.generate_spheres()
+        self.setup_plane()
 
     def hline(self, parent):
         # Add a horizontal dividing line to parent
@@ -293,10 +307,233 @@ class DesignLattice(QMainWindow):
         lattice_grid.addWidget(self.gamma_spin, 7, 1)
         
         self.crystal_controls_layout.addLayout(lattice_grid)
+        
+        # Add Miller index controls for planes/directions
+        self.setup_miller_controls(self.crystal_controls_layout)
+        
         parent_layout.addWidget(self.crystal_controls_widget)
         
         # Initially hide crystal controls
         self.crystal_controls_widget.setVisible(False)
+
+    def setup_miller_controls(self, parent_layout):
+        """Add Miller index inputs and visibility toggles for planes and directions."""
+        # wrapper
+        self.miller_widget = QWidget()
+        miller_layout = QVBoxLayout(self.miller_widget)
+        miller_layout.setContentsMargins(0, 0, 0, 0)
+
+        # Start with a horizontal divider
+        self.hline(miller_layout)
+        
+        # Create main table layout
+        table_layout = QGridLayout()
+        table_layout.setSpacing(8)
+        table_layout.setColumnStretch(0, 0)  # Button column (fixed width)
+        table_layout.setColumnStretch(1, 1)  # Indices column (expandable)
+        
+        # ===== ROW 0: PLANE =====
+        self.show_plane_cb = QPushButton("Show Plane")
+        self.show_plane_cb.setCheckable(True)
+        self.show_plane_cb.setMinimumWidth(100)
+        self.show_plane_cb.toggled.connect(self.update_plane_visibility)
+        table_layout.addWidget(self.show_plane_cb, 0, 0)
+        
+        # FCC plane indices
+        self.plane_fcc_widget = QWidget()
+        plane_fcc_layout = QGridLayout(self.plane_fcc_widget)
+        plane_fcc_layout.setContentsMargins(0, 0, 0, 0)
+        plane_fcc_layout.setSpacing(3)
+        self.plane_h_spin = QSpinBox()
+        self.plane_h_spin.setRange(-10, 10)
+        self.plane_h_spin.setValue(1)
+        self.plane_h_spin.valueChanged.connect(self.update_plane_orientation)
+        plane_fcc_layout.addWidget(self.plane_h_spin, 0, 0)
+        self.plane_k_spin = QSpinBox()
+        self.plane_k_spin.setRange(-10, 10)
+        self.plane_k_spin.setValue(0)
+        self.plane_k_spin.valueChanged.connect(self.update_plane_orientation)
+        plane_fcc_layout.addWidget(self.plane_k_spin, 0, 1)
+        self.plane_l_spin = QSpinBox()
+        self.plane_l_spin.setRange(-10, 10)
+        self.plane_l_spin.setValue(0)
+        self.plane_l_spin.valueChanged.connect(self.update_plane_orientation)
+        plane_fcc_layout.addWidget(self.plane_l_spin, 0, 2)
+        table_layout.addWidget(self.plane_fcc_widget, 0, 1)
+        
+        # HCP plane indices
+        self.plane_hcp_widget = QWidget()
+        plane_hcp_layout = QGridLayout(self.plane_hcp_widget)
+        plane_hcp_layout.setContentsMargins(0, 0, 0, 0)
+        plane_hcp_layout.setSpacing(3)
+        self.plane_h_b_spin = QSpinBox()
+        self.plane_h_b_spin.setRange(-10, 10)
+        self.plane_h_b_spin.setValue(1)
+        self.plane_h_b_spin.valueChanged.connect(self._update_plane_hcp_i)
+        plane_hcp_layout.addWidget(self.plane_h_b_spin, 0, 0)
+        self.plane_k_b_spin = QSpinBox()
+        self.plane_k_b_spin.setRange(-10, 10)
+        self.plane_k_b_spin.setValue(0)
+        self.plane_k_b_spin.valueChanged.connect(self._update_plane_hcp_i)
+        plane_hcp_layout.addWidget(self.plane_k_b_spin, 0, 1)
+        self.plane_i_b_spin = QSpinBox()
+        self.plane_i_b_spin.setRange(-10, 10)
+        self.plane_i_b_spin.setValue(-1)
+        self.plane_i_b_spin.setEnabled(False)
+        plane_hcp_layout.addWidget(self.plane_i_b_spin, 0, 2)
+        self.plane_l_b_spin = QSpinBox()
+        self.plane_l_b_spin.setRange(-10, 10)
+        self.plane_l_b_spin.setValue(0)
+        self.plane_l_b_spin.valueChanged.connect(self.update_plane_orientation)
+        plane_hcp_layout.addWidget(self.plane_l_b_spin, 0, 3)
+        table_layout.addWidget(self.plane_hcp_widget, 0, 1)
+        self.plane_hcp_widget.setVisible(False)
+        
+        # ===== ROW 1: DIRECTION =====
+        # (plane visibility handled above)
+        self.show_dir_cb = QPushButton("Show Direction")
+        self.show_dir_cb.setCheckable(True)
+        self.show_dir_cb.setMinimumWidth(100)
+        table_layout.addWidget(self.show_dir_cb, 1, 0)
+        
+        # FCC direction indices
+        self.dir_fcc_widget = QWidget()
+        dir_fcc_layout = QGridLayout(self.dir_fcc_widget)
+        dir_fcc_layout.setContentsMargins(0, 0, 0, 0)
+        dir_fcc_layout.setSpacing(3)
+        self.dir_h_spin = QSpinBox()
+        self.dir_h_spin.setRange(-10, 10)
+        self.dir_h_spin.setValue(1)
+        dir_fcc_layout.addWidget(self.dir_h_spin, 0, 0)
+        self.dir_k_spin = QSpinBox()
+        self.dir_k_spin.setRange(-10, 10)
+        self.dir_k_spin.setValue(0)
+        dir_fcc_layout.addWidget(self.dir_k_spin, 0, 1)
+        self.dir_l_spin = QSpinBox()
+        self.dir_l_spin.setRange(-10, 10)
+        self.dir_l_spin.setValue(0)
+        dir_fcc_layout.addWidget(self.dir_l_spin, 0, 2)
+        table_layout.addWidget(self.dir_fcc_widget, 1, 1)
+        
+        # HCP direction indices
+        self.dir_hcp_widget = QWidget()
+        dir_hcp_layout = QGridLayout(self.dir_hcp_widget)
+        dir_hcp_layout.setContentsMargins(0, 0, 0, 0)
+        dir_hcp_layout.setSpacing(3)
+        self.dir_h_b_spin = QSpinBox()
+        self.dir_h_b_spin.setRange(-10, 10)
+        self.dir_h_b_spin.setValue(1)
+        dir_hcp_layout.addWidget(self.dir_h_b_spin, 0, 0)
+        self.dir_k_b_spin = QSpinBox()
+        self.dir_k_b_spin.setRange(-10, 10)
+        self.dir_k_b_spin.setValue(0)
+        dir_hcp_layout.addWidget(self.dir_k_b_spin, 0, 1)
+        self.dir_i_b_spin = QSpinBox()
+        self.dir_i_b_spin.setRange(-10, 10)
+        self.dir_i_b_spin.setValue(-1)
+        self.dir_i_b_spin.setEnabled(False)
+        dir_hcp_layout.addWidget(self.dir_i_b_spin, 0, 2)
+        self.dir_l_b_spin = QSpinBox()
+        self.dir_l_b_spin.setRange(-10, 10)
+        self.dir_l_b_spin.setValue(0)
+        dir_hcp_layout.addWidget(self.dir_l_b_spin, 0, 3)
+        table_layout.addWidget(self.dir_hcp_widget, 1, 1)
+        self.dir_hcp_widget.setVisible(False)
+        
+        miller_layout.addLayout(table_layout)
+        self.dir_i_b_spin.blockSignals(True)
+        self.dir_i_b_spin.setValue(-(self.dir_h_b_spin.value() + self.dir_k_b_spin.value()))
+        self.dir_i_b_spin.blockSignals(False)
+        
+        parent_layout.addWidget(self.miller_widget)
+
+    def setup_plane(self):
+        """Create plane on graph to be used later"""
+        # Plane custom item (create now but hide)
+        self.plane_item = QCustom3DItem()
+        self.plane_item.setMeshFile(unit_plane_path)
+        self.plane_item.setTextureFile(plane_texture_path)
+        self.plane_item.setScalingAbsolute(False)
+        self.scale_plane()
+        # Add but hide by default
+        self.graph.addCustomItem(self.plane_item)
+        self.plane_item.setVisible(False)
+
+    def scale_plane(self):
+        """Automatically scale & place the plane object"""
+        # Find longest length in domain
+        domain = np.array(self.graph.limits)
+        lengths = domain[:,1] - domain[:,0]
+        L = np.sqrt(np.sum(lengths**2))
+        # Note: the default size of the plane is weirdly 5x5
+        self.plane_item.setScaling(QVector3D(2*L, 0.01, 2*L))
+        center = QVector3D( *np.mean(domain, axis=1) )
+        self.plane_item.setPosition(center)
+
+    def quat_from_two_vectors(self, v0, v1):
+        """Return a QQuaternion that rotates unit vector v0 to unit vector v1.
+        Uses the shortest rotation; handles edge cases where vectors are
+        parallel or opposite.
+        """
+        v0 = np.array(v0, dtype=float)
+        v1 = np.array(v1, dtype=float)
+        n0 = v0 / np.linalg.norm(v0)
+        n1 = v1 / np.linalg.norm(v1)
+        dot = float(np.dot(n0, n1))
+        if dot > 0.999999:
+            return QQuaternion()  # identity
+        if dot < -0.999999:
+            # 180 degree rotation: pick an orthogonal axis
+            axis = np.array([1.0, 0.0, 0.0])
+            if abs(n0[0]) > 0.9:
+                axis = np.array([0.0, 1.0, 0.0])
+            axis = axis / np.linalg.norm(axis)
+            return QQuaternion(0.0, float(axis[0]), float(axis[1]), float(axis[2]))
+        axis = np.cross(n0, n1)
+        w = 1.0 + dot
+        q = np.array([w, axis[0], axis[1], axis[2]], dtype=float)
+        q = q / np.linalg.norm(q)
+        return QQuaternion(float(q[0]), float(q[1]), float(q[2]), float(q[3]))
+
+    def update_plane_orientation(self):
+        """Compute plane normal from Miller indices and rotate the plane item.
+        Uses `crystal.miller_plane` to obtain the normal in physical coords,
+        then sets the plane item's rotation as a QQuaternion.
+        """
+        if not hasattr(self, 'plane_item') or self.plane_item is None:
+            return
+        # Choose indices depending on lattice
+        if self.placement_method == 'fcc':
+            miller = [self.plane_h_spin.value(), self.plane_k_spin.value(), self.plane_l_spin.value()]
+            lattice_type = 'FCC'
+        else:
+            miller = [self.plane_h_b_spin.value(), self.plane_k_b_spin.value(), self.plane_l_b_spin.value()]
+            lattice_type = 'HCP'
+
+        lattice_prms = np.array([self.lattice_a, self.lattice_b, self.lattice_c])
+        euler_angles = np.radians(np.array([self.euler_alpha, self.euler_beta, self.euler_gamma]))
+        normal = crystal.miller_plane(lattice_type, miller, lattice_prms, euler_angles)
+
+        default_normal = np.array([0.0, 1.0, 0.0])
+        q = self.quat_from_two_vectors(default_normal, normal)
+        self.plane_item.setRotation(q)
+
+    def _update_plane_hcp_i(self):
+        """Auto-sync HCP plane i-index as -(h+k) and update orientation."""
+        if not hasattr(self, 'plane_i_b_spin'):
+            return
+        self.plane_i_b_spin.blockSignals(True)
+        self.plane_i_b_spin.setValue(-(self.plane_h_b_spin.value() + self.plane_k_b_spin.value()))
+        self.plane_i_b_spin.blockSignals(False)
+        self.update_plane_orientation()
+
+    def _update_dir_hcp_i(self):
+        """Auto-sync HCP direction i-index as -(h+k)."""
+        if not hasattr(self, 'dir_i_b_spin'):
+            return
+        self.dir_i_b_spin.blockSignals(True)
+        self.dir_i_b_spin.setValue(-(self.dir_h_b_spin.value() + self.dir_k_b_spin.value()))
+        self.dir_i_b_spin.blockSignals(False)
 
     def apply_limits(self):
         """Automatically update axes limits from spinbox values."""
@@ -306,6 +543,10 @@ class DesignLattice(QMainWindow):
             (self.z_min_spin.value(), self.z_max_spin.value())
         ]
         self.graph.axes_limits(self.graph.limits)
+        # Update the scaling of the plane
+        self.scale_plane()
+        # Regenerate the lattice to fill the domain
+        self.generate_spheres()
 
     def update_data(self, data_np):
         """Standard method to accept a (N, 3) NumPy array."""
@@ -363,15 +604,30 @@ class DesignLattice(QMainWindow):
         # Show/hide random controls
         self.random_controls_widget.setVisible(not show_crystal)
         
+        # Toggle the appropriate plane/direction index widgets
+        if hasattr(self, 'plane_fcc_widget') and hasattr(self, 'plane_hcp_widget'):
+            is_hcp = self.placement_method == 'hcp'
+            self.plane_fcc_widget.setVisible(not is_hcp)
+            self.plane_hcp_widget.setVisible(is_hcp)
+            self.dir_fcc_widget.setVisible(not is_hcp)
+            self.dir_hcp_widget.setVisible(is_hcp)
+
         # Regenerate spheres
         self.generate_spheres()
 
+    def update_plane_visibility(self, visible):
+        """Show or hide the custom plane object in the graph."""
+        if self.plane_item is None:
+            return
+        self.plane_item.setVisible(visible)
+    
     def on_lattice_params_changed(self):
         """Handle lattice parameter changes."""
         self.lattice_a = self.a_spin.value()
         self.lattice_b = self.b_spin.value()
         self.lattice_c = self.c_spin.value()
         self.generate_spheres()
+        self.update_plane_orientation()
     
     def on_euler_angles_changed(self):
         """Handle Euler angle changes."""
@@ -379,6 +635,7 @@ class DesignLattice(QMainWindow):
         self.euler_beta = self.beta_spin.value()
         self.euler_gamma = self.gamma_spin.value()
         self.generate_spheres()
+        self.update_plane_orientation()
 
 
 def print_gpu_info():
