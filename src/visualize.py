@@ -813,7 +813,7 @@ class SolPlotter(QMainWindow):
         # slider and label
         self.slider = QSlider(Qt.Orientation.Horizontal)
         self.slider.setRange(0, self.Nt-1)
-        self.slider.sliderReleased.connect(self.on_slider_released)
+        self.slider.valueChanged.connect(self.on_slider_changed)
         self.slider_label = QLabel("0")
 
         slider_layout = QHBoxLayout()
@@ -831,10 +831,12 @@ class SolPlotter(QMainWindow):
         # show initial timestep
         self.show_timestep(0)
 
-    def on_slider_released(self):
+    def on_slider_changed(self):
+        self.slider.blockSignals(True)
         val = self.slider.value()
         self.slider_label.setText(str(val))
         self.show_timestep(val)
+        self.slider.blockSignals(False)
 
     def show_timestep(self, idx):
         idx = int(idx)
