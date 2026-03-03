@@ -14,7 +14,7 @@ from PyQt6.QtDataVisualization import (
     QScatterDataItem, QAbstract3DSeries, QCustom3DItem
 )
 from PyQt6.QtGui import QVector3D, QColor, QQuaternion
-from PyQt6.QtCore import Qt
+from PyQt6.QtCore import Qt, QFile
 
 # For diagnostics
 from PyQt6.QtGui import QOpenGLContext
@@ -26,15 +26,15 @@ import crystal
 script_dir = os.path.dirname(os.path.abspath(__file__))
 unit_plane_path = os.path.join(script_dir, "unit_plane.obj")
 
-plane_texture_path = os.path.join(script_dir, "plane_tex.png")
+texture_red_path = os.path.join(script_dir, "tex_red.png")
 
-def gen_plane_texture():
+def gen_texture():
     """Generate texture image for a plane (semi-transparent red)"""
-    if not os.path.exists(plane_texture_path):
+    if not os.path.exists(texture_red_path):
         from PyQt6.QtGui import QImage, QColor
         tex = QImage(4, 4, QImage.Format.Format_RGBA8888)
         tex.fill(QColor(255, 0, 0, 120))
-        tex.save(plane_texture_path)
+        tex.save(texture_red_path)
 
 class SphereGraph(Q3DScatter):
     def __init__(self):
@@ -58,6 +58,14 @@ class SphereGraph(Q3DScatter):
         self.series.setItemSize(0.12) 
         self.series.setBaseColor(QColor(0, 180, 255))
         self.addSeries(self.series)
+
+        # Setup line series for direction visualization
+        self.line_proxy = QScatterDataProxy()
+        self.line_series = QScatter3DSeries(self.line_proxy)
+        self.line_series.setMesh(QAbstract3DSeries.Mesh.MeshSphere) #MeshPoint)
+        self.line_series.setItemSize(0.05)
+        self.line_series.setBaseColor(QColor(0, 255, 0))  # Green for directions
+        self.addSeries(self.line_series)
 
     def setup_axes(self):
         # Add axes labels
@@ -146,6 +154,7 @@ class DesignLattice(QMainWindow):
         # Initial scene
         self.generate_spheres()
         self.setup_plane()
+        self.line_visible = False
 
     def hline(self, parent):
         # Add a horizontal dividing line to parent
@@ -390,10 +399,10 @@ class DesignLattice(QMainWindow):
         self.plane_hcp_widget.setVisible(False)
         
         # ===== ROW 1: DIRECTION =====
-        # (plane visibility handled above)
         self.show_dir_cb = QPushButton("Show Direction")
         self.show_dir_cb.setCheckable(True)
         self.show_dir_cb.setMinimumWidth(100)
+        self.show_dir_cb.toggled.connect(self.update_line_visibility)
         table_layout.addWidget(self.show_dir_cb, 1, 0)
         
         # FCC direction indices
@@ -404,14 +413,17 @@ class DesignLattice(QMainWindow):
         self.dir_h_spin = QSpinBox()
         self.dir_h_spin.setRange(-10, 10)
         self.dir_h_spin.setValue(1)
+        self.dir_h_spin.valueChanged.connect(self.draw_line)
         dir_fcc_layout.addWidget(self.dir_h_spin, 0, 0)
         self.dir_k_spin = QSpinBox()
         self.dir_k_spin.setRange(-10, 10)
         self.dir_k_spin.setValue(0)
+        self.dir_k_spin.valueChanged.connect(self.draw_line)
         dir_fcc_layout.addWidget(self.dir_k_spin, 0, 1)
         self.dir_l_spin = QSpinBox()
         self.dir_l_spin.setRange(-10, 10)
         self.dir_l_spin.setValue(0)
+        self.dir_l_spin.valueChanged.connect(self.draw_line)
         dir_fcc_layout.addWidget(self.dir_l_spin, 0, 2)
         table_layout.addWidget(self.dir_fcc_widget, 1, 1)
         
@@ -423,10 +435,12 @@ class DesignLattice(QMainWindow):
         self.dir_h_b_spin = QSpinBox()
         self.dir_h_b_spin.setRange(-10, 10)
         self.dir_h_b_spin.setValue(1)
+        self.dir_h_b_spin.valueChanged.connect(self._update_dir_hcp_i)
         dir_hcp_layout.addWidget(self.dir_h_b_spin, 0, 0)
         self.dir_k_b_spin = QSpinBox()
         self.dir_k_b_spin.setRange(-10, 10)
         self.dir_k_b_spin.setValue(0)
+        self.dir_k_b_spin.valueChanged.connect(self._update_dir_hcp_i)
         dir_hcp_layout.addWidget(self.dir_k_b_spin, 0, 1)
         self.dir_i_b_spin = QSpinBox()
         self.dir_i_b_spin.setRange(-10, 10)
@@ -436,6 +450,7 @@ class DesignLattice(QMainWindow):
         self.dir_l_b_spin = QSpinBox()
         self.dir_l_b_spin.setRange(-10, 10)
         self.dir_l_b_spin.setValue(0)
+        self.dir_l_b_spin.valueChanged.connect(self.draw_line)
         dir_hcp_layout.addWidget(self.dir_l_b_spin, 0, 3)
         table_layout.addWidget(self.dir_hcp_widget, 1, 1)
         self.dir_hcp_widget.setVisible(False)
@@ -452,12 +467,72 @@ class DesignLattice(QMainWindow):
         # Plane custom item (create now but hide)
         self.plane_item = QCustom3DItem()
         self.plane_item.setMeshFile(unit_plane_path)
-        self.plane_item.setTextureFile(plane_texture_path)
+        self.plane_item.setTextureFile(texture_red_path)
         self.plane_item.setScalingAbsolute(False)
         self.scale_plane()
         # Add but hide by default
         self.graph.addCustomItem(self.plane_item)
         self.plane_item.setVisible(False)
+
+    def get_plane_indices(self):
+        """Get the Miller or Miller-Bravais indices from the input spinners for
+        the plane
+        """
+        if self.placement_method == 'fcc':
+            indices = [self.plane_h_spin.value(), self.plane_k_spin.value(), self.plane_l_spin.value()]
+        else:
+            indices = [self.plane_h_b_spin.value(), self.plane_k_b_spin.value(), 
+                    self.plane_i_b_spin.value(), self.plane_l_b_spin.value()]
+        return np.array(indices)
+
+    def get_dir_indices(self):
+        """Get the Miller or Miller-Bravais indices from the input spinners for
+        the direction line
+        """
+        if self.placement_method == 'fcc':
+            indices = [self.dir_h_spin.value(), self.dir_k_spin.value(), self.dir_l_spin.value()]
+        else:
+            indices = [self.dir_h_b_spin.value(), self.dir_k_b_spin.value(), 
+                    self.dir_i_b_spin.value(), self.dir_l_b_spin.value()]
+        return np.array(indices)
+
+    def draw_line(self):
+        """Populate direction line series with points"""
+        if self.line_visible:
+            # Find longest length in domain
+            domain = np.array(self.graph.limits)
+            lengths = domain[:,1] - domain[:,0]
+            L = np.sqrt(np.sum(lengths**2))
+            lattice_type = self.placement_method.upper()
+            miller = self.get_dir_indices()
+            if lattice_type == "HCP":
+                miller = crystal.bravais_miller(miller, False)
+            lattice_prms = np.array([self.lattice_a, self.lattice_b, self.lattice_c])
+            euler_angles = np.radians(np.array([self.euler_alpha, self.euler_beta, 
+                    self.euler_gamma]))
+
+            # Unit vector along direction
+            vec = crystal.miller_vec(lattice_type, miller, lattice_prms, euler_angles)
+
+            # Create points along the line
+            num_points = int(L*20)
+            t = np.linspace(-L/2, L/2, num_points)
+            line_points = t.reshape(-1, 1) * vec.reshape(1, -1)
+            
+            # Add points to the line series
+            pt2item = lambda pt: QScatterDataItem(QVector3D(float(pt[0]), 
+                    float(pt[1]), float(pt[2])))
+            items = [pt2item(x) for x in line_points]
+            self.graph.line_proxy.resetArray(items)
+        else:
+            self.graph.line_proxy.resetArray([])
+
+    def update_line_visibility(self, visible):
+        """Toggle visibility of the direction line series."""
+        # setVisible not working properly
+        #self.graph.line_series.setVisible(visible)
+        self.line_visible = visible
+        self.draw_line()
 
     def scale_plane(self):
         """Automatically scale & place the plane object"""
@@ -528,12 +603,13 @@ class DesignLattice(QMainWindow):
         self.update_plane_orientation()
 
     def _update_dir_hcp_i(self):
-        """Auto-sync HCP direction i-index as -(h+k)."""
+        """Auto-sync HCP direction i-index as -(h+k) and refresh line points."""
         if not hasattr(self, 'dir_i_b_spin'):
             return
         self.dir_i_b_spin.blockSignals(True)
         self.dir_i_b_spin.setValue(-(self.dir_h_b_spin.value() + self.dir_k_b_spin.value()))
         self.dir_i_b_spin.blockSignals(False)
+        self.draw_line()
 
     def apply_limits(self):
         """Automatically update axes limits from spinbox values."""
@@ -601,6 +677,10 @@ class DesignLattice(QMainWindow):
         # Show/hide crystal controls
         show_crystal = self.placement_method in ['fcc', 'hcp']
         self.crystal_controls_widget.setVisible(show_crystal)
+        if not show_crystal:
+            #self.line_visible = False
+            self.show_dir_cb.setChecked(False)
+            self.show_plane_cb.setChecked(False)
         # Show/hide random controls
         self.random_controls_widget.setVisible(not show_crystal)
         
@@ -614,6 +694,8 @@ class DesignLattice(QMainWindow):
 
         # Regenerate spheres
         self.generate_spheres()
+        self.update_plane_orientation()
+        self.draw_line()
 
     def update_plane_visibility(self, visible):
         """Show or hide the custom plane object in the graph."""
@@ -628,6 +710,7 @@ class DesignLattice(QMainWindow):
         self.lattice_c = self.c_spin.value()
         self.generate_spheres()
         self.update_plane_orientation()
+        self.draw_line()
     
     def on_euler_angles_changed(self):
         """Handle Euler angle changes."""
@@ -636,6 +719,7 @@ class DesignLattice(QMainWindow):
         self.euler_gamma = self.gamma_spin.value()
         self.generate_spheres()
         self.update_plane_orientation()
+        self.draw_line()
 
 
 def print_gpu_info():

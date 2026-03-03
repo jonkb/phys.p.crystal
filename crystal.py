@@ -239,6 +239,30 @@ def miller_plane(lattice_type, miller, lattice_prms, euler_angles=np.zeros(3)):
     # Normalize
     return N / np.linalg.norm(N)
 
+def miller_vec(lattice_type, miller, lattice_prms, euler_angles=np.zeros(3)):
+    """ Convert miller indices to a direction vector
+    
+    miller (length 3 iterable): [i, j, k] Miller indices
+    lattice_prms (length 3 iterable): [a, b, c]
+    euler angles (length 3 iterable): [phi1, Phi, phi2] Bunge euler angles
+
+    Returns vector ((3,) np array)
+    """
+    miller = np.array(miller)
+    assert miller.size == 3
+    lattice_prms = np.array(lattice_prms)
+    if lattice_type == "FCC":
+        # Principal direction vectors
+        basis_vectors = FCC_basis(lattice_prms, euler_angles)
+    elif lattice_type == "HCP":
+        # Principal direction vectors
+        basis_vectors = HCP_basis(lattice_prms, euler_angles)
+    else:
+        print("ERROR: Unrecognized lattice_type")
+    
+    vec = miller @ basis_vectors
+    return vec / np.linalg.norm(vec)
+
 if __name__ == "__main__":
     # Testing
 
