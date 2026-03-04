@@ -781,15 +781,12 @@ class SolPlotter(QMainWindow):
     ----------
     solution : np.ndarray, shape (Nt, Nx, 3)
         Coordinates of Nx spheres for Nt time steps.
-    t_max : int
-        Maximum value for the slider (usually ``Nt-1``).
     """
-    def __init__(self, solution, t_max):
+    def __init__(self, solution):
         super().__init__()
         assert isinstance(solution, np.ndarray)
         assert solution.ndim == 3 and solution.shape[2] == 3
         self.solution = solution
-        self.t_max = t_max
         self.Nt = solution.shape[0]
 
         self.setWindowTitle("Solution Plotter")
@@ -887,18 +884,34 @@ def app_design_lattice():
 
     sys.exit(app.exec())
 
-def app_plot_sol(data, t_max):
+def plot_sol_file(path):
+    """Plot the solution saved in the given file"""
+
+    ys = np.loadtxt(path, delimiter=',', skiprows=1)
+    Nt = ys.shape[0]
+    Nx = int(ys.shape[1]/6)
+    xs = np.reshape(ys[:, 0:3*Nx], (Nt,Nx,3))
+    app_plot_sol(xs)
+
+def app_plot_sol(data):
     """Plot the given solution"""
     app = QApplication(sys.argv)
-    viewer = SolPlotter(data, t_max=t_max)
+    viewer = SolPlotter(data)
     viewer.show()
     sys.exit(app.exec())
 
 if __name__ == "__main__":
     # Fix for Linux OpenGL environments
     QApplication.setAttribute(Qt.ApplicationAttribute.AA_ShareOpenGLContexts)
-    #app_design_lattice()
+    app_design_lattice()
 
+    """
+    #sol_path = os.path.join(src_dir, "../data/sol_20260303-123015.csv")
+    sol_path = os.path.join(src_dir, "../data/sol_20260303-100733.csv")
+    plot_sol_file(sol_path)
+    """
+
+    """
     data = np.random.rand(20, 100, 3)
-    t_max = 10
-    app_plot_sol(data, t_max)
+    app_plot_sol(data)
+    """
