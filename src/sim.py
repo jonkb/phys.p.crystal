@@ -9,12 +9,13 @@ from jax import jit, lax
 
 from autoDyn import AutoEL, simulate
 from visualize import app_plot_sol
+from util import tic, toc
 
 # Constants
 t1 = 3
 Nt = 50
 src_dir = os.path.dirname(os.path.abspath(__file__))
-data_dir = os.path.join(src_dir, "..", "data")
+data_dir = os.path.realpath(os.path.join(src_dir, "..", "data"))
 in_path = os.path.join(data_dir, "positions_20260303-195122.csv")
 out_path = os.path.join(data_dir, "sol_20260303-195122.csv")
 atom_mass = 1
@@ -78,37 +79,48 @@ def L(q, qd):
     V = V_total_lax(q)
     return T-V
 
-Qnc = None
 
-# Equinox module to be simulated with diffrax
-mod = AutoEL(L, Qnc)
+if __name__ == "__main__":
 
-# Load initial conditions from file
-x0 = np.loadtxt(in_path, delimiter=',', skiprows=1)
-Nx = x0.shape[0]
+    # Start timing
+    times = tic()
 
-# Simulation parameters
-ts = jnp.linspace(0, t1, Nt)
-q0 = jnp.reshape(x0, (-1,))
+    # Nonconservative forces (None for now)
+    Qnc = None
 
-""" #TESTING
-q0 = q0[0:9]
-print(q0)
-print("V_total_lax(q0): ", V_total_lax(q0))
-print("V_total_jnp(q0): ", V_total_jnp(q0))
-"""
+    # Equinox module to be simulated with diffrax
+    mod = AutoEL(L, Qnc)
 
+    # Load initial conditions from file
+    x0 = np.loadtxt(in_path, delimiter=',', skiprows=1)
+    Nx = x0.shape[0]
+    print(f"Loaded initial positions of {Nx} atoms from:")
+    print(in_path)
 
-qd0 = jnp.zeros_like(q0)
-y0 = jnp.concatenate([q0, qd0])
+    # Simulation parameters
+    ts = jnp.linspace(0, t1, Nt)
+    q0 = jnp.reshape(x0, (-1,))
 
-sol = simulate(mod, ts, y0, tol=1e-6, max_steps=int(1e6))
+    """ #TESTING
+    q0 = q0[0:9]
+    print(q0)
+    print("V_total_lax(q0): ", V_total_lax(q0))
+    print("V_total_jnp(q0): ", V_total_jnp(q0))
+    """
 
-# Save state vector at each timestep
-ys = np.array(sol.ys)
-np.savetxt(out_path, ys, delimiter=',', header='x,y,z', comments='')
+    qd0 = jnp.zeros_like(q0)
+    y0 = jnp.concatenate([q0, qd0])
 
-# Animate with visualize
-xs = np.reshape(ys[:, 0:3*Nx], (Nt,Nx,3))
-app_plot_sol(xs)
+    # Run simulation
+    toc(times, "Setup")
+    sol = simulate(mod, ts, y0, tol=1e-6, max_steps=int(1e6))
+    toc(times, "Simulation")
+
+    # Save state vector at each timestep
+    ys = np.array(sol.ys)
+    np.savetxt(out_path, ys, delimiter=',', header='x,y,z', comments='')
+
+    # Animate with visualize
+    xs = np.reshape(ys[:, 0:3*Nx], (Nt,Nx,3))
+    app_plot_sol(xs)
 
