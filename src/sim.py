@@ -11,7 +11,7 @@ import jax.numpy as jnp
 #from config import data_dir
 from autoDyn import AutoEL, simulate
 from ui.visualize import app_plot_sol
-from util import tic, toc
+from util import tic, toc, isonow
 from lattice_energy import LJLagrangian
 
 msg_load_err = "Invalid input file"
@@ -45,6 +45,38 @@ def load_inp(input_filepath):
         inp_data['tol'] = grp_sim['options'].attrs['tol']
         inp_data['max_steps'] = grp_sim['options'].attrs['max_steps']
     return inp_data
+
+def save_res(inp_file, out_file, ys, xs, t_wallclock):
+    """Save simulation results
+        HDF Hierarchy
+        -------------
+        /root
+            /input -- Copy of input HDF (see design_lattice.save_inp)
+            /
+    """
+    # Load the input file so it can be copied over to the output
+    with h5py.File(inp_file, 'r') as f_in, h5py.File(out_file, 'w') as f_out:
+        try:
+            # --- Root Level Metadata ---
+            f_out.attrs['program_name'] = "phys.p.crystal: Crystal Physics"
+            f_out.attrs['file_type'] = "simulation_result"
+            f_out.attrs['timestamp'] = isonow()
+
+            # -- Group 1: Inputs --
+            #   This line copies the input HDF directly to out_file
+            f_out.copy(f_in, 'input')
+
+            # -- Group 2: Results --
+            grp_res = f_out.create_group('result')
+            grp_res.attrs['wallclock_time'] = t_wallclock
+            grp_res.create_dataset('states', data=ys, compression="gzip", chunks=True)
+            grp_res.create_dataset('coords', data=xs, compression="gzip", chunks=True)
+
+        except Exception as e:
+            print(f"Failed to save file: {e}")
+        else:
+            # Success
+            print("Simulation results file saved to:", out_file)
 
 
 def run_simulation(inp_data):
@@ -161,11 +193,14 @@ def main():
     print(f"Loading input file: {args.inp_file}")
     inp_data = load_inp(args.inp_file)
 
-    # Run simulation TODO
+    # Run simulation
     ys, xs, t_wallclock = run_simulation(inp_data)
-    app_plot_sol(xs)
 
-    # TODO save to args.out_file
+    # Save the results
+    save_res(args.inp_file, args.out_file, ys, xs, t_wallclock)
+
+    # Animate the results
+    app_plot_sol(xs)
 
 
 if __name__ == "__main__":
