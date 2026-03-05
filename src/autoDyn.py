@@ -193,6 +193,9 @@ class AutoELCnstr(eqx.Module):
 class AutoEL(eqx.Module):
     """ Automatically implement the Euler-Lagrange equation for the given 
         Lagrangian function L
+
+    L (callable function of (q, qd)): System Lagrangian function
+    Qnc (callable function of (t, q, qd)): Nonconservative forces
     
     d/dt (dL/d{qd}) = d/d{qd} (dL/d{qd}) * qdd + d/d{q} (dL/d{qd}) * qd
         --> M = d/d{qd} (dL/d{qd})      Mass matrix
@@ -210,7 +213,10 @@ class AutoEL(eqx.Module):
     def __init__(self, L, Qnc=None):
         # Assumes L = L(q, qd)
         self.L = L
-        self.Qnc = Qnc
+        if Qnc is None:
+            self.Qnc = lambda t,q,qd: 0.0
+        else:
+            self.Qnc = Qnc
 
         # Set up dynamics
         self.M = jax.hessian(L, 1)
@@ -228,7 +234,7 @@ class AutoEL(eqx.Module):
         fki = self.fk(q, qd)
 
         # Solve for \ddot{q}
-        Fi = -Ci@qd + fki + (0.0 if self.Qnc is None else self.Qnc(t, x))
+        Fi = -Ci@qd + fki + self.Qnc(t, q, qd)
         qdd = jnp.linalg.solve(Mi, Fi).flatten()
 
         return jnp.hstack([qd, qdd])

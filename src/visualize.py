@@ -190,7 +190,7 @@ class SolPlotter(QMainWindow):
         
         if next_frame >= self.Nt:
             next_frame = 0 # Loop back to start
-            
+        
         self.slider.setValue(next_frame)
 
 
