@@ -3,4 +3,5 @@ PyQt6
 jax
 diffrax
 equinox
-sympy # Not used
+sympy # Not used, but imported in autoDyn
+h5py

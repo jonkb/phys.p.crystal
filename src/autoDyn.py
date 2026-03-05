@@ -205,9 +205,6 @@ class AutoEL(eqx.Module):
     """
 
     L: Callable
-    M: Callable
-    C: Callable
-    fk: Callable
     Qnc: Callable
 
     def __init__(self, L, Qnc=None):
@@ -218,20 +215,19 @@ class AutoEL(eqx.Module):
         else:
             self.Qnc = Qnc
 
-        # Set up dynamics
-        self.M = jax.hessian(L, 1)
-        self.C = jax.jacfwd(jax.jacfwd(L, 1), 0)
-        self.fk = jax.jacfwd(L, 0)
-
     def _dynamics(self, t, x, params):
         # Equation of motion
+        # Unpack x
         Nq = int(len(x)/2)
         q = x[0:Nq]
         qd = x[Nq:]
 
-        Mi = self.M(q, qd)
-        Ci = self.C(q, qd)
-        fki = self.fk(q, qd)
+        M = jax.hessian(self.L, 1)
+        C = jax.jacfwd(jax.jacfwd(self.L, 1), 0)
+        fk = jax.jacfwd(self.L, 0)
+        Mi = M(q, qd)
+        Ci = C(q, qd)
+        fki = fk(q, qd)
 
         # Solve for \ddot{q}
         Fi = -Ci@qd + fki + self.Qnc(t, q, qd)

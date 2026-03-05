@@ -3,6 +3,7 @@
 
 import os
 import numpy as np
+import h5py
 
 # Core PyQt6 UI components
 from PyQt6.QtWidgets import (
@@ -114,9 +115,9 @@ class DesignLattice(QMainWindow):
         left_layout.addStretch()
         
         # Add save button at the bottom of left panel
-        self.save_button = QPushButton("Save Positions")
+        self.save_button = QPushButton("Save Input File")
         self.save_button.setFixedHeight(40)
-        self.save_button.clicked.connect(self.save_positions)
+        self.save_button.clicked.connect(self.save_inp)
         left_layout.addWidget(self.save_button)
 
     def setup_plane(self):
@@ -311,31 +312,118 @@ class DesignLattice(QMainWindow):
         self.update_plane_orientation()
         self.draw_line()
 
-    def save_positions(self):
-        """Open dialog then write current point positions to CSV file.
+    def save_inp(self):
+        """Open save dialog and write simulation input file
 
         Defaults the dialog to the ``data`` directory adjacent to the
-        repository root.  If the selected path doesn't end in ``.csv`` the
-        extension is appended automatically.
+        repository root. 
+        Extension: *.inp.h5
+
+        HDF Hierarchy
+        -------------
+        /root
+            /lattice
+                /setup
+                coordinates
+            /visualization
+            /forces
+                /body
+                /interatomic
+                /tractions
+                /constraints
+            /simulation
+                /time
+                /options
         """
-        # ensure there is something to save
+        # Get current coordinates
         coords = getattr(self, 'current_coords', None)
         if coords is None or coords.size == 0:
-            return
+            print("WARNING: No points found")
         
         # Default save location & filename 
-        default_name = f"positions_{isonow()}.csv"
+        default_name = f"sim_{isonow()}.inp.h5"
         default_path = os.path.join(data_dir, default_name)
         # Prompt for filename
         fname, _ = QFileDialog.getSaveFileName(self, "Save positions",
-                default_path, "CSV Files (*.csv)")
+                default_path, "HDF5 Files (*.h5 *.hdf5)")
         if not fname:
             return
-        if not fname.lower().endswith('.csv'):
-            fname += '.csv'
+        if not fname.lower().endswith('.h5'):
+            fname += '.h5'
+
+        # Write to file
         try:
-            np.savetxt(fname, coords, delimiter=',', header='x,y,z', comments='')
-            print("Positions saved to:")
+            with h5py.File(fname, 'w') as f:
+                # --- Root Level Metadata ---
+                f.attrs['program_name'] = "phys.p.crystal: Crystal Physics"
+                f.attrs['file_type'] = "simulation_input"
+                f.attrs['timestamp'] = isonow()
+                f.attrs['units'] = "NONE" # TODO
+
+                # -- Group 1: Lattice Design --
+                grp_lat = f.create_group('lattice')
+
+                # Lattice setup -- options from DesignLattice
+                grp_lat_setup = grp_lat.create_group('setup')
+                grp_lat_setup.create_dataset('domain_limits', data=np.array(self.graph.limits))
+                placement_method = self.lattice_panel.get_method()
+                grp_lat_setup.attrs['type'] = placement_method
+                if placement_method == 'random':
+                    grp_lat_setup.attrs['N'] = self.lattice_panel.get_point_count()
+                else:
+                    grp_lat_setup.attrs['prms'] = self.lattice_panel.get_lattice_params()
+                    grp_lat_setup.attrs['euler_angles'] = self.lattice_panel.get_euler_angles()
+                
+                # Initial coordinates
+                grp_lat.create_dataset('coordinates', data=coords, compression="gzip")
+
+                # -- Group 2: Visualization Options --
+                grp_viz = f.create_group('visualization')
+                grp_viz.attrs['plane_visible'] = self.miller_panel.show_plane_cb.isChecked()
+                grp_viz.attrs['plane_indices'] = self.miller_panel.get_plane_indices()
+                grp_viz.attrs['direction_visible'] = self.miller_panel.show_dir_cb.isChecked()
+                grp_viz.attrs['direction_indices'] = self.miller_panel.get_dir_indices()
+                # TODO: Consider adding camera position
+
+                # -- Group 3: Forces (& Constraints) --
+                grp_force = f.create_group('forces')
+
+                # Inertial and body forces
+                grp_fbody = grp_force.create_group('body')
+                grp_fbody.attrs['atom_mass'] = 1.0
+                # TODO: gravity
+
+                # Interatomic force potential
+                #   TODO: Replace hardcoded with left panel options
+                #   TODO: Add Morse potential function
+                grp_fIA = grp_force.create_group('interatomic')
+                grp_fIA.attrs['potential_type'] = "Lennard-Jones"
+                grp_fIA.attrs['epsilon_depth'] = 0.1
+                grp_fIA.attrs['sigma_r0'] = 0.89 / np.sqrt(2) # Good for FCC, a=1
+
+                # Tractions
+                grp_fTr = grp_force.create_group('tractions')
+                #   TODO (list of tractions)
+
+                # Constraints
+                grp_fCn = grp_force.create_group('constraints')
+                #   TODO
+
+                # -- Group 4: Simulation options --
+                grp_sim = f.create_group('simulation')
+
+                # Time vector
+                grp_simT = grp_sim.create_group('time')
+                grp_simT.attrs['t1'] = 2.0
+                grp_simT.attrs['Nt'] = 50
+
+                # Solver options
+                grp_simOpt = grp_sim.create_group('options')
+                grp_simOpt.attrs['tol'] = 1e-5
+                grp_simOpt.attrs['max_steps'] = int(1e5)
+
+            # Success
+            print("Simulation input file saved to:")
             print(fname)
         except Exception as e:
             print(f"Failed to save file: {e}")
