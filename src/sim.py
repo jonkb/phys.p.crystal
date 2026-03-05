@@ -7,6 +7,7 @@ import numpy as np
 import jax.numpy as jnp
 from jax import jit, lax
 from functools import partial
+#from jax.tree_util import Partial as partial # Throws a really verbose warning
 
 from autoDyn import AutoEL, simulate
 from visualize import app_plot_sol

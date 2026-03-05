@@ -7,7 +7,7 @@ import numpy as np
 from PyQt6.QtWidgets import (
     QApplication, QMainWindow, QWidget, 
     QVBoxLayout, QHBoxLayout, QPushButton, 
-    QLabel, QSlider
+    QLabel, QSlider, QFrame
 )
 from PyQt6.QtDataVisualization import (
     Q3DScatter, QScatterDataProxy, QScatter3DSeries, 
@@ -21,6 +21,13 @@ from PyQt6.QtGui import QOpenGLContext
 from PyQt6.QtOpenGL import QOpenGLFunctions_2_0
 
 
+def hline(parent):
+    # Add a horizontal dividing line to parent
+    divider = QFrame()
+    divider.setFrameShape(QFrame.Shape.HLine)
+    divider.setFrameShadow(QFrame.Shadow.Sunken)
+    parent.addWidget(divider)
+
 class SphereGraph(Q3DScatter):
     def __init__(self):
         super().__init__()
@@ -33,9 +40,8 @@ class SphereGraph(Q3DScatter):
         self.activeTheme().setType(self.activeTheme().Theme.ThemeEbony)
 
         # Set up axes
-        self.limits = np.array([(-8, 8), (-5, 5), (-3, 3)])
         self.setup_axes()
-        self.axes_limits(self.limits)
+        self.axes_limits(np.array([(-8, 8), (-5, 5), (-3, 3)]))
 
         # Setup the Series
         self.series = QScatter3DSeries()
@@ -64,6 +70,7 @@ class SphereGraph(Q3DScatter):
         self.axisZ().setReversed(True)
 
     def axes_limits(self, limits):
+        self.limits = limits
         xlim, ylim, zlim = limits
         # Lock axes limits
         self.axisX().setRange(*xlim)
@@ -107,12 +114,11 @@ class SolPlotter(QMainWindow):
         all_pts = solution.reshape(-1, 3)
         mins = all_pts.min(axis=0)
         maxs = all_pts.max(axis=0)
-        self.graph.limits = np.array([
+        self.graph.axes_limits(np.array([
             (mins[0], maxs[0]),
             (mins[1], maxs[1]),
             (mins[2], maxs[2])
-        ])
-        self.graph.axes_limits(self.graph.limits)
+        ]))
 
         container = QWidget.createWindowContainer(self.graph)
 

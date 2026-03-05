@@ -1,6 +1,13 @@
 """ Utility functions
 """
 import time
+from datetime import datetime
+
+def isonow():
+    """ Return the current date and time in ISO format, suitable
+    for filenames: YYYYMMDD-HHMMSS
+    """
+    return datetime.now().strftime("%Y%m%d-%H%M%S")
 
 def tic():
     """ Start timing. Returns a list of times with one entry.
