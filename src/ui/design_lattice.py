@@ -1,4 +1,4 @@
-""" Design a crystal lattice
+""" Design a crystal lattice & simulation
 """
 
 import os
@@ -26,6 +26,9 @@ from .collabsible_box import CollapsibleBox
 from .limits_panel import LimitsPanel
 from .miller_panel import MillerPanel
 from .lattice_panel import LatticePanel
+from .constraints_panel import ConstraintsPanel
+from .forces_panel import ForcesPanel
+from .body_forces_panel import BodyForcesPanel
 
 # Paths
 unit_plane_path = os.path.join(res_dir, "unit_plane.obj")
@@ -101,10 +104,31 @@ class DesignLattice(QMainWindow):
         self.miller_accordion.setVisible(False) # Hidden by default
         left_layout.addWidget(self.miller_accordion)
 
-        # Add Forces & Constraints
-        forces_accordion = CollapsibleBox("Forces && Constraints")
-        forces_accordion.addWidget(QLabel("TODO"))
+        # Edit forces
+        forces_accordion = CollapsibleBox("Forces")
+        # Edit body forces
+        body_forces_accordion = CollapsibleBox("Body Forces")
+        self.body_forces_panel = BodyForcesPanel()
+        body_forces_accordion.addWidget(self.body_forces_panel)
+        forces_accordion.addWidget(body_forces_accordion)
+        # Edit interatomic forces
+        interatomic_accordion = CollapsibleBox("Interatomic Potential")
+        interatomic_accordion.addWidget(QLabel("TODO"))
+        forces_accordion.addWidget(interatomic_accordion)
+        # Add applied forces
+        appl_forces_accordion = CollapsibleBox("Applied Forces")
+        self.appl_forces_panel = ForcesPanel(initial_domain=self.graph.limits)
+        appl_forces_accordion.addWidget(self.appl_forces_panel)
+        forces_accordion.addWidget(appl_forces_accordion)
         left_layout.addWidget(forces_accordion)
+
+        # Add Constraints
+        constraints_accordion = CollapsibleBox("Constraints")
+        self.constraints_panel = ConstraintsPanel(initial_domain=self.graph.limits)
+        # TODO: In the future, highlight atoms that are constrained
+        #self.constraints_panel.active_region_changed.connect(self.highlight_region)
+        constraints_accordion.addWidget(self.constraints_panel)
+        left_layout.addWidget(constraints_accordion)
 
         # Add Simulation Settings
         sim_accordion = CollapsibleBox("Simulation")
@@ -329,7 +353,7 @@ class DesignLattice(QMainWindow):
             /forces
                 /body
                 /interatomic
-                /tractions
+                /forces
                 /constraints
             /simulation
                 /time
@@ -385,7 +409,7 @@ class DesignLattice(QMainWindow):
                 grp_viz.attrs['direction_indices'] = self.miller_panel.get_dir_indices()
                 # TODO: Consider adding camera position
 
-                # -- Group 3: Forces (& Constraints) --
+                # -- Group 3: Forces --
                 grp_force = f.create_group('forces')
 
                 # Inertial and body forces
@@ -401,15 +425,15 @@ class DesignLattice(QMainWindow):
                 grp_fIA.attrs['epsilon_depth'] = 0.1
                 grp_fIA.attrs['sigma_r0'] = 0.89 / np.sqrt(2) # Good for FCC, a=1
 
-                # Tractions
-                grp_fTr = grp_force.create_group('tractions')
-                #   TODO (list of tractions)
+                # Applied Forces
+                grp_fA = grp_force.create_group('applied')
+                #   TODO (list of forces)
 
-                # Constraints
-                grp_fCn = grp_force.create_group('constraints')
+                # -- Group 4: Constraints --
+                grp_fCn = f.create_group('constraints')
                 #   TODO
 
-                # -- Group 4: Simulation options --
+                # -- Group 5: Simulation options --
                 grp_sim = f.create_group('simulation')
 
                 # Time vector

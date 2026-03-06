@@ -52,7 +52,7 @@ def save_res(inp_file, out_file, ys, xs, t_wallclock):
         -------------
         /root
             /input -- Copy of input HDF (see design_lattice.save_inp)
-            /
+            /result
     """
     # Load the input file so it can be copied over to the output
     with h5py.File(inp_file, 'r') as f_in, h5py.File(out_file, 'w') as f_out:

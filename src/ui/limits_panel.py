@@ -24,6 +24,10 @@ class LimitsPanel(QWidget):
         layout = QGridLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(5)
+        # Specify that the first column shrinks and the next two share evenly
+        layout.setColumnStretch(0, 0)
+        layout.setColumnStretch(1, 1)
+        layout.setColumnStretch(2, 1)
         
         # Headers
         layout.addWidget(QLabel("Axis"), 0, 0)
@@ -63,3 +67,29 @@ class LimitsPanel(QWidget):
         ]
         # Broadcast the signal
         self.limits_changed.emit(new_limits)
+
+    def set_limits(self, new_limits):
+        """Update the spinboxes with new limits programmatically.
+        new_limits (list): A list of tuples/lists [(xmin, xmax), (ymin, ymax), (zmin, zmax)]
+        """
+        if new_limits is None or len(new_limits) != 3:
+            return
+
+        # Update internal state
+        self.limits = new_limits
+
+        # Iterate through the X, Y, and Z spinbox pairs
+        for i in range(3):
+            min_val, max_val = new_limits[i]
+            min_spin, max_spin = self.spins[i]
+            
+            # Block signals to prevent 6 separate 'limits_changed' emissions
+            min_spin.blockSignals(True)
+            max_spin.blockSignals(True)
+            
+            min_spin.setValue(float(min_val))
+            max_spin.setValue(float(max_val))
+            
+            # Unblock signals
+            min_spin.blockSignals(False)
+            max_spin.blockSignals(False)
