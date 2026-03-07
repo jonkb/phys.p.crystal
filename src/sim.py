@@ -16,6 +16,52 @@ from lattice_energy import LJLagrangian
 
 msg_load_err = "Invalid input file"
 
+def in_region(limits, x0):
+    """Return a boolean mask for whether each point in x0 is in limits"""
+    in_x = (x0[:, 0] >= limits[0, 0]) & (x0[:, 0] <= limits[0, 1])
+    in_y = (x0[:, 1] >= limits[1, 0]) & (x0[:, 1] <= limits[1, 1])
+    in_z = (x0[:, 2] >= limits[2, 0]) & (x0[:, 2] <= limits[2, 1])
+    return in_x & in_y & in_z
+
+def parse_applied_forces(force_dict, x0):
+    """ Convert a dictionary of (constant) applied forces to an (N,3) array
+    representing the resultant of all forces acting on the particles
+    """
+    # Initialize an array of zeros with the same shape as x0
+    F_resultant = np.zeros_like(x0, dtype=float)
+    
+    # Iterate over each applied force region
+    for region_name, group in force_dict.items():
+        # Get the bounding box limits [3x2 array]
+        limits = np.array(group['limits'])
+        
+        # Find which atoms fall within the bounding box
+        mask = in_region(limits, x0)
+        
+        # Add the applied force to the atoms within the region
+        F_resultant[mask, :] += group.attrs['vector']
+        
+    return F_resultant
+
+def parse_constraints(con_dict, x0):
+    """ Convert a dictionary of constraints to an (N,3) boolean array
+    representing the constrained degrees of freedom for each particle.
+    """
+    # Initialize an array of False (unconstrained) with the same shape as x0
+    con = np.zeros_like(x0, dtype=bool)
+    
+    # Iterate over each constraint region
+    for region_name, group in con_dict.items():
+        # Get the bounding box limits
+        limits = np.array(group['limits'])
+
+        # Find which atoms fall within the bounding box
+        mask = in_region(limits, x0)
+        
+        # Apply the constraints using logical OR (so overlapping regions don't overwrite each other)
+        con[mask, :] |= group.attrs['dof']
+        
+    return con
 
 def load_inp(input_filepath):
     """ Read the contents of the provided hdf5 file
@@ -26,7 +72,8 @@ def load_inp(input_filepath):
         assert f.attrs['file_type'] == "simulation_input", msg_load_err
 
         # Pull out atomic coordinates
-        inp_data['x0'] = np.array(f['lattice']['coordinates'])
+        x0 = np.array(f['lattice']['coordinates'])
+        inp_data['x0'] = x0
 
         # Pull out body forces
         grp_fbody = f['forces']['body']
@@ -36,14 +83,21 @@ def load_inp(input_filepath):
         # Pull out interatomic potential
         inp_data['potential'] = dict(f['forces']['interatomic'].attrs)
 
-        # TODO: Tractions & Constraints
+        # Applied forces
+        force_dict = dict(f['forces']['applied'])
+        inp_data['applied_forces'] = parse_applied_forces(force_dict, x0)
+
+        # Constraints
+        con_dict = dict(f['constraints'])
+        inp_data['constraints'] = parse_constraints(con_dict, x0)
 
         # Simulation options
         grp_sim = f['simulation']
         inp_data['t1'] = grp_sim['time'].attrs['t1']
         inp_data['Nt'] = grp_sim['time'].attrs['Nt']
-        inp_data['tol'] = grp_sim['options'].attrs['tol']
-        inp_data['max_steps'] = grp_sim['options'].attrs['max_steps']
+        # Casting to standard Python types solved a weird diffrax / jax error
+        inp_data['tol'] = float(grp_sim['options'].attrs['tol'])
+        inp_data['max_steps'] = int(grp_sim['options'].attrs['max_steps'])
     return inp_data
 
 def save_res(inp_file, out_file, ys, xs, t_wallclock):
@@ -88,38 +142,35 @@ def run_simulation(inp_data):
     # Unpack inp_data
     x0 = jnp.array(inp_data['x0'])
     atom_mass = inp_data['atom_mass']
-    epsilon_depth = inp_data['potential']['epsilon_depth']
-    sigma_r0 = inp_data['potential']['sigma_r0']
     t1 = inp_data['t1']
     Nt = inp_data['Nt']
     tol = inp_data['tol']
     max_steps = inp_data['max_steps']
 
     # Array specifying which DOF are constrained
-    #   TODO: Load con
-    con = np.zeros_like(x0).astype(bool)
-    #con[0,:] = 1    # Constrain atom 0 fully
-    left_face = x0[:,0] < -2.75
-    con[left_face,0] = 1
-    con = jnp.array(con)
-
+    con = jnp.array(inp_data['constraints'])
     free_idx = jnp.where(~con)
-
-    # Nonconservative forces (None for now)
-    Qnc = None
 
     # Lagrangian
     #   TODO: Other potential functions
-    L = LJLagrangian(free_idx, x0, atom_mass, epsilon_depth, sigma_r0)
+    if inp_data['potential']['type'] == "Lennard-Jones":
+        epsilon_depth = inp_data['potential']['epsilon_depth']
+        sigma_r0 = inp_data['potential']['sigma_r0']
+        L = LJLagrangian(free_idx, x0, atom_mass, epsilon_depth, sigma_r0)
+    else:
+        print(f"Unsupported potential type: {inp_data['potential']['type']}")
+        return
 
-    # Remove the constrained DOF from the simulation
-    q0 = L.x_to_q(x0)
-    Nq = q0.size
+    # Nonconservative forces (constant for now)
+    F_resultant = jnp.array(inp_data['applied_forces'])
+    Qnc_resultant = L.x_to_q(F_resultant)
+    Qnc = lambda t, q, qd: Qnc_resultant
 
     # Simulation parameters
     ts = jnp.linspace(0, t1, Nt)
-    #q0 = jnp.reshape(x0, (-1,))
-
+    # Note the generalized coordinates q do not include the constrained DOF
+    q0 = L.x_to_q(x0)
+    Nq = q0.size
     qd0 = jnp.zeros_like(q0)
     y0 = jnp.concatenate([q0, qd0])
 
@@ -127,7 +178,7 @@ def run_simulation(inp_data):
 
     # Run simulation
     toc(times, "Setup")
-    sol = simulate(mod, ts, y0, tol=1e-6, max_steps=int(1e6))
+    sol = simulate(mod, ts, y0, tol=tol, max_steps=max_steps)
     toc(times, "Simulation")
     t_wallclock = times[-1] - times[-2]
 
@@ -192,6 +243,8 @@ def main():
     # Pull out the essential information from the input file
     print(f"Loading input file: {args.inp_file}")
     inp_data = load_inp(args.inp_file)
+    Nx = inp_data['x0'].shape[0]
+    print(f"\tNx = {Nx}, t_end = {inp_data['t1']}")
 
     # Run simulation
     ys, xs, t_wallclock = run_simulation(inp_data)
