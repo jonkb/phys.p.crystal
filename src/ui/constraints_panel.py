@@ -28,14 +28,15 @@ class ConstraintsPanel(SelectRegionsPanel):
             cb.setChecked(False)
 
     def load_custom_data(self, data):
-        for axis in ['x', 'y', 'z']:
-            self.cbs[axis].setChecked(data[axis])
+        for i, axis in enumerate(['x', 'y', 'z']):
+            self.cbs[axis].setChecked(data[i])
 
     def get_custom_data(self):
-        return {axis: cb.isChecked() for axis, cb in self.cbs.items()}
+        # DOF constrained boolean array [x,y,z]
+        return [cb.isChecked() for cb in self.cbs.values()]
 
     def validate_custom_data(self, data):
-        if not any(data.values()):
+        if not any(data):
             QMessageBox.warning(self, "Invalid Input", "Select at least one DOF to constrain.")
             return False
         return True

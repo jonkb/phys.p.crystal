@@ -46,15 +46,16 @@ class ForcesPanel(SelectRegionsPanel):
             spin.setValue(0.0)
 
     def load_custom_data(self, data):
-        for axis in ['x', 'y', 'z']:
-            self.spins[axis].setValue(data[axis])
+        for i, axis in enumerate(['x', 'y', 'z']):
+            self.spins[axis].setValue(data[i])
 
     def get_custom_data(self):
-        return {axis: spin.value() for axis, spin in self.spins.items()}
+        # Force vector
+        return [spin.value() for spin in self.spins.values()]
 
     def validate_custom_data(self, data):
         # Optional: ensure it's not a zero vector
-        if all(val == 0.0 for val in data.values()):
+        if not any(data):
             QMessageBox.warning(self, "Invalid Input", 
                 "Force vector cannot be zero in all directions.")
             return False

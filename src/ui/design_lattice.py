@@ -30,6 +30,7 @@ from .constraints_panel import ConstraintsPanel
 from .forces_panel import ForcesPanel
 from .body_forces_panel import BodyForcesPanel
 from .interatomic_panel import InteratomicPanel
+from .simulation_panel import SimulationPanel
 
 # Paths
 unit_plane_path = os.path.join(res_dir, "unit_plane.obj")
@@ -134,7 +135,8 @@ class DesignLattice(QMainWindow):
 
         # Add Simulation Settings
         sim_accordion = CollapsibleBox("Simulation")
-        sim_accordion.addWidget(QLabel("TODO"))
+        self.simulation_panel = SimulationPanel()
+        sim_accordion.addWidget(self.simulation_panel)
         left_layout.addWidget(sim_accordion)
         
         # Add stretch to push controls to the top
@@ -428,36 +430,39 @@ class DesignLattice(QMainWindow):
             grp_fA = grp_force.create_group('applied')
             applied_forces = self.appl_forces_panel.get_items()
             for name, item_data in applied_forces.items():
-                force_grp = grp_fA.create_group(name)
+                grp_fi = grp_fA.create_group(name)
                 # Save the rectangular domain bounding box
-                force_grp.create_dataset('limits', data=np.array(item_data['limits']))
+                grp_fi.create_dataset('limits', data=np.array(item_data['limits']))
                 # Save the vector components (x, y, z)
-                for axis, val in item_data['payload'].items():
-                    force_grp.attrs[axis] = val
+                grp_fi.attrs['vector'] = item_data['payload']
+                #for axis, val in item_data['payload'].items():
+                #    grp_fi.attrs[axis] = val
 
             # -- Group 4: Constraints --
             grp_fCn = f.create_group('constraints')
             constraints = self.constraints_panel.get_items()
             for name, item_data in constraints.items():
-                cn_grp = grp_fCn.create_group(name)
+                grp_coni = grp_fCn.create_group(name)
                 # Save the rectangular domain bounding box
-                cn_grp.create_dataset('limits', data=np.array(item_data['limits']))
+                grp_coni.create_dataset('limits', data=np.array(item_data['limits']))
                 # Save the DOF booleans (x, y, z)
-                for axis, is_constrained in item_data['payload'].items():
-                    cn_grp.attrs[axis] = is_constrained
+                grp_coni.attrs['dof'] = item_data['payload']
+                #for axis, is_constrained in item_data['payload'].items():
+                #    grp_coni.attrs[axis] = is_constrained
 
             # -- Group 5: Simulation options --
             grp_sim = f.create_group('simulation')
+            sim_data = self.simulation_panel.get_simulation_data()
 
             # Time vector
             grp_simT = grp_sim.create_group('time')
-            grp_simT.attrs['t1'] = 2.0
-            grp_simT.attrs['Nt'] = 50
+            grp_simT.attrs['t1'] = sim_data['time']['t1']
+            grp_simT.attrs['Nt'] = sim_data['time']['Nt']
 
             # Solver options
             grp_simOpt = grp_sim.create_group('options')
-            grp_simOpt.attrs['tol'] = 1e-5
-            grp_simOpt.attrs['max_steps'] = int(1e5)
+            grp_simOpt.attrs['tol'] = sim_data['options']['tol']
+            grp_simOpt.attrs['max_steps'] = sim_data['options']['max_steps']
 
         # Success
         print("Simulation input file saved to:")
