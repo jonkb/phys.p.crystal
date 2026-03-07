@@ -1,4 +1,7 @@
 """ Start the user interface
+
+TODO: Load inp or res
+TODO: Visualize res w/o re-running
 """
 
 import sys
