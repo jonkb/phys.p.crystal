@@ -29,6 +29,7 @@ from .lattice_panel import LatticePanel
 from .constraints_panel import ConstraintsPanel
 from .forces_panel import ForcesPanel
 from .body_forces_panel import BodyForcesPanel
+from .interatomic_panel import InteratomicPanel
 
 # Paths
 unit_plane_path = os.path.join(res_dir, "unit_plane.obj")
@@ -113,7 +114,8 @@ class DesignLattice(QMainWindow):
         forces_accordion.addWidget(body_forces_accordion)
         # Edit interatomic forces
         interatomic_accordion = CollapsibleBox("Interatomic Potential")
-        interatomic_accordion.addWidget(QLabel("TODO"))
+        self.interatomic_panel = InteratomicPanel()
+        interatomic_accordion.addWidget(self.interatomic_panel)
         forces_accordion.addWidget(interatomic_accordion)
         # Add applied forces
         appl_forces_accordion = CollapsibleBox("Applied Forces")
@@ -339,8 +341,7 @@ class DesignLattice(QMainWindow):
     def save_inp(self):
         """Open save dialog and write simulation input file
 
-        Defaults the dialog to the ``data`` directory adjacent to the
-        repository root. 
+        Defaults the dialog to config.data_dir
         Extension: *.inp.h5
 
         HDF Hierarchy
@@ -354,7 +355,7 @@ class DesignLattice(QMainWindow):
                 /body
                 /interatomic
                 /forces
-                /constraints
+            /constraints
             /simulation
                 /time
                 /options
@@ -376,78 +377,88 @@ class DesignLattice(QMainWindow):
             fname += '.h5'
 
         # Write to file
-        try:
-            with h5py.File(fname, 'w') as f:
-                # --- Root Level Metadata ---
-                f.attrs['program_name'] = "phys.p.crystal: Crystal Physics"
-                f.attrs['file_type'] = "simulation_input"
-                f.attrs['timestamp'] = isonow()
-                f.attrs['units'] = "NONE" # TODO
+        with h5py.File(fname, 'w') as f:
+            # --- Root Level Metadata ---
+            f.attrs['program_name'] = "phys.p.crystal: Crystal Physics"
+            f.attrs['file_type'] = "simulation_input"
+            f.attrs['timestamp'] = isonow()
+            f.attrs['units'] = "NONE" # TODO
 
-                # -- Group 1: Lattice Design --
-                grp_lat = f.create_group('lattice')
+            # -- Group 1: Lattice Design --
+            grp_lat = f.create_group('lattice')
 
-                # Lattice setup -- options from DesignLattice
-                grp_lat_setup = grp_lat.create_group('setup')
-                grp_lat_setup.create_dataset('domain_limits', data=np.array(self.graph.limits))
-                placement_method = self.lattice_panel.get_method()
-                grp_lat_setup.attrs['type'] = placement_method
-                if placement_method == 'random':
-                    grp_lat_setup.attrs['N'] = self.lattice_panel.get_point_count()
-                else:
-                    grp_lat_setup.attrs['prms'] = self.lattice_panel.get_lattice_params()
-                    grp_lat_setup.attrs['euler_angles'] = self.lattice_panel.get_euler_angles()
-                
-                # Initial coordinates
-                grp_lat.create_dataset('coordinates', data=coords, compression="gzip")
+            # Lattice setup -- options from DesignLattice
+            grp_lat_setup = grp_lat.create_group('setup')
+            grp_lat_setup.create_dataset('domain_limits', data=np.array(self.graph.limits))
+            placement_method = self.lattice_panel.get_method()
+            grp_lat_setup.attrs['type'] = placement_method
+            if placement_method == 'random':
+                grp_lat_setup.attrs['N'] = self.lattice_panel.get_point_count()
+            else:
+                grp_lat_setup.attrs['prms'] = self.lattice_panel.get_lattice_params()
+                grp_lat_setup.attrs['euler_angles'] = self.lattice_panel.get_euler_angles()
+            
+            # Initial coordinates
+            grp_lat.create_dataset('coordinates', data=coords, compression="gzip")
 
-                # -- Group 2: Visualization Options --
-                grp_viz = f.create_group('visualization')
-                grp_viz.attrs['plane_visible'] = self.miller_panel.show_plane_cb.isChecked()
-                grp_viz.attrs['plane_indices'] = self.miller_panel.get_plane_indices()
-                grp_viz.attrs['direction_visible'] = self.miller_panel.show_dir_cb.isChecked()
-                grp_viz.attrs['direction_indices'] = self.miller_panel.get_dir_indices()
-                # TODO: Consider adding camera position
+            # -- Group 2: Visualization Options --
+            grp_viz = f.create_group('visualization')
+            grp_viz.attrs['plane_visible'] = self.miller_panel.show_plane_cb.isChecked()
+            grp_viz.attrs['plane_indices'] = self.miller_panel.get_plane_indices()
+            grp_viz.attrs['direction_visible'] = self.miller_panel.show_dir_cb.isChecked()
+            grp_viz.attrs['direction_indices'] = self.miller_panel.get_dir_indices()
+            # TODO: Consider adding camera position
 
-                # -- Group 3: Forces --
-                grp_force = f.create_group('forces')
+            # -- Group 3: Forces --
+            grp_force = f.create_group('forces')
 
-                # Inertial and body forces
-                grp_fbody = grp_force.create_group('body')
-                grp_fbody.attrs['atom_mass'] = 1.0
-                # TODO: gravity
+            # Inertial and body forces
+            grp_fbody = grp_force.create_group('body')
+            grp_fbody.attrs['atom_mass'] = self.body_forces_panel.get_mass()
+            # TODO: gravity
 
-                # Interatomic force potential
-                #   TODO: Replace hardcoded with left panel options
-                #   TODO: Add Morse potential function
-                grp_fIA = grp_force.create_group('interatomic')
-                grp_fIA.attrs['potential_type'] = "Lennard-Jones"
-                grp_fIA.attrs['epsilon_depth'] = 0.1
-                grp_fIA.attrs['sigma_r0'] = 0.89 / np.sqrt(2) # Good for FCC, a=1
+            # Interatomic force potential
+            grp_fIA = grp_force.create_group('interatomic')
+            pot_data = self.interatomic_panel.get_potential_data()
+            # This dumps "type", "epsilon_depth", "sigma_r0", etc. dynamically
+            for key, val in pot_data.items():
+                grp_fIA.attrs[key] = val
 
-                # Applied Forces
-                grp_fA = grp_force.create_group('applied')
-                #   TODO (list of forces)
+            # Applied Forces
+            grp_fA = grp_force.create_group('applied')
+            applied_forces = self.appl_forces_panel.get_items()
+            for name, item_data in applied_forces.items():
+                force_grp = grp_fA.create_group(name)
+                # Save the rectangular domain bounding box
+                force_grp.create_dataset('limits', data=np.array(item_data['limits']))
+                # Save the vector components (x, y, z)
+                for axis, val in item_data['payload'].items():
+                    force_grp.attrs[axis] = val
 
-                # -- Group 4: Constraints --
-                grp_fCn = f.create_group('constraints')
-                #   TODO
+            # -- Group 4: Constraints --
+            grp_fCn = f.create_group('constraints')
+            constraints = self.constraints_panel.get_items()
+            for name, item_data in constraints.items():
+                cn_grp = grp_fCn.create_group(name)
+                # Save the rectangular domain bounding box
+                cn_grp.create_dataset('limits', data=np.array(item_data['limits']))
+                # Save the DOF booleans (x, y, z)
+                for axis, is_constrained in item_data['payload'].items():
+                    cn_grp.attrs[axis] = is_constrained
 
-                # -- Group 5: Simulation options --
-                grp_sim = f.create_group('simulation')
+            # -- Group 5: Simulation options --
+            grp_sim = f.create_group('simulation')
 
-                # Time vector
-                grp_simT = grp_sim.create_group('time')
-                grp_simT.attrs['t1'] = 2.0
-                grp_simT.attrs['Nt'] = 50
+            # Time vector
+            grp_simT = grp_sim.create_group('time')
+            grp_simT.attrs['t1'] = 2.0
+            grp_simT.attrs['Nt'] = 50
 
-                # Solver options
-                grp_simOpt = grp_sim.create_group('options')
-                grp_simOpt.attrs['tol'] = 1e-5
-                grp_simOpt.attrs['max_steps'] = int(1e5)
+            # Solver options
+            grp_simOpt = grp_sim.create_group('options')
+            grp_simOpt.attrs['tol'] = 1e-5
+            grp_simOpt.attrs['max_steps'] = int(1e5)
 
-            # Success
-            print("Simulation input file saved to:")
-            print(fname)
-        except Exception as e:
-            print(f"Failed to save file: {e}")
+        # Success
+        print("Simulation input file saved to:")
+        print(fname)
