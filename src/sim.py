@@ -170,9 +170,15 @@ def run_simulation(inp_data):
     ts = jnp.linspace(0, t1, Nt)
     # Note the generalized coordinates q do not include the constrained DOF
     q0 = L.x_to_q(x0)
-    Nq = q0.size
     qd0 = jnp.zeros_like(q0)
     y0 = jnp.concatenate([q0, qd0])
+
+    Nx = x0.shape[0]
+    Nq = q0.size
+    print("Simulation parameters:")
+    print(f"\tParticles: {Nx} particles")
+    print(f"\tState variables: {Nq}")
+    print(f"\tEnding time: {t1}")
 
     mod = AutoEL(L, Qnc)
 
@@ -243,8 +249,6 @@ def main():
     # Pull out the essential information from the input file
     print(f"Loading input file: {args.inp_file}")
     inp_data = load_inp(args.inp_file)
-    Nx = inp_data['x0'].shape[0]
-    print(f"\tNx = {Nx}, t_end = {inp_data['t1']}")
 
     # Run simulation
     ys, xs, t_wallclock = run_simulation(inp_data)

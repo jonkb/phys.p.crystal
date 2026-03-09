@@ -409,7 +409,14 @@ class DesignLattice(QMainWindow):
             grp_viz.attrs['plane_indices'] = self.miller_panel.get_plane_indices()
             grp_viz.attrs['direction_visible'] = self.miller_panel.show_dir_cb.isChecked()
             grp_viz.attrs['direction_indices'] = self.miller_panel.get_dir_indices()
-            # TODO: Consider adding camera position
+            # Save camera state
+            grp_cam = grp_viz.create_group('camera')
+            camera = self.graph.scene().activeCamera()
+            grp_cam.attrs['x_rot'] = camera.xRotation()
+            grp_cam.attrs['y_rot'] = camera.yRotation()
+            grp_cam.attrs['zoom'] = camera.zoomLevel()
+            target = camera.target()
+            grp_cam.attrs['target'] = [target.x(), target.y(), target.z()]
 
             # -- Group 3: Forces --
             grp_force = f.create_group('forces')
@@ -467,3 +474,121 @@ class DesignLattice(QMainWindow):
         # Success
         print("Simulation input file saved to:")
         print(fname)
+    
+    def load_inp(self, fname):
+        """Load an existing simulation input file and update the UI."""
+
+        with h5py.File(fname, 'r') as f:
+            # 0. Verify file type
+            file_type = f.attrs.get('file_type')
+            if file_type == "simulation_result":
+                print("Loading the inputs used to create this result file")
+                f = f["input"]
+            elif file_type != "simulation_input":
+                print("ERROR: Not a valid simulation input file.")
+                return
+
+            # -- Group 1: Lattice Design --
+            grp_lat = f['lattice']
+            setup = grp_lat['setup']
+            
+            # Load limits
+            limits = np.array(setup['domain_limits']).tolist()
+            if hasattr(self.limits_panel, 'set_limits'):
+                self.limits_panel.set_limits(limits)
+            self.apply_limits(limits)
+            
+            # Load Lattice Panel Settings
+            self.lattice_panel.blockSignals(True)
+
+            placement_method = setup.attrs.get('type', 'fcc')
+            
+            if placement_method == 'random':
+                if 'N' in setup.attrs and hasattr(self.lattice_panel, 'set_point_count'):
+                    self.lattice_panel.set_point_count(int(setup.attrs['N']))
+            else:
+                if 'prms' in setup.attrs and hasattr(self.lattice_panel, 'set_lattice_params'):
+                    self.lattice_panel.set_lattice_params(setup.attrs['prms'])
+                if 'euler_angles' in setup.attrs and hasattr(self.lattice_panel, 'set_euler_angles'):
+                    self.lattice_panel.set_euler_angles(setup.attrs['euler_angles'])
+
+            # Refresh points
+            self.lattice_panel.blockSignals(False)
+            self.lattice_panel.set_method(placement_method)
+            # Compare generated points to stored points
+            saved_coords = np.array(grp_lat['coordinates'])
+            regen_coords = self.current_coords
+            max_diff = np.max(saved_coords - regen_coords)
+            if max_diff > 0:
+                print("There was some disagreement between the saved & regenerated coordinates.")
+                print(f"\tMaximum disagreement: {max_diff}")
+            
+            # Load Coordinates directly into the 3D graph
+            #   TODO: Let the program regenerate the list... then check?
+            #coords = np.array(grp_lat['coordinates'])
+            #self.update_data(coords)
+
+            # -- Group 2: Visualization --
+            grp_viz = f['visualization']
+            
+            # Block auto-updates while loading in the data
+            self.miller_panel.blockSignals(True)
+            self.miller_panel.set_plane_indices(grp_viz.attrs['plane_indices'])
+            self.miller_panel.set_dir_indices(grp_viz.attrs['direction_indices'])
+            self.miller_panel.blockSignals(False)
+            self.miller_panel.plane_indices_changed.emit()
+            self.miller_panel.dir_indices_changed.emit()
+            # Don't block signals for the checkboxes
+            self.miller_panel.show_plane_cb.setChecked(grp_viz.attrs.get('plane_visible', False))
+            self.miller_panel.show_dir_cb.setChecked(grp_viz.attrs.get('direction_visible', False))
+
+            # Load camera state, if it was saved
+            if 'camera' in grp_viz:
+                grp_cam = grp_viz['camera']
+                camera = self.graph.scene().activeCamera()
+                camera.setXRotation(float(grp_cam.attrs['x_rot']))
+                camera.setYRotation(float(grp_cam.attrs['y_rot']))
+                camera.setZoomLevel(float(grp_cam.attrs['zoom']))
+                t = grp_cam.attrs['target']
+                camera.setTarget(QVector3D(float(t[0]), float(t[1]), float(t[2])))
+
+            # -- Group 3: Forces --
+            grp_force = f['forces']
+            
+            # Body forces (Assuming body_forces_panel has a mass spinbox)
+            self.body_forces_panel.mass_spin.setValue(grp_force['body'].attrs['atom_mass'])
+            
+            # Interatomic Potential
+            pot_data = dict(grp_force['interatomic'].attrs)
+            self.interatomic_panel.set_potential_data(pot_data)
+
+            # Applied Forces
+            appl_dict = {}
+            for name, grp in grp_force['applied'].items():
+                payload = list(grp.attrs['vector'])
+                appl_dict[name] = {
+                    'limits': np.array(grp['limits']).tolist(),
+                    'payload': payload
+                }
+            self.appl_forces_panel.load_items(appl_dict)
+            
+            # -- Group 4: Constraints --
+            con_dict = {}
+            for name, grp in f['constraints'].items():
+                payload = [bool(val) for val in grp.attrs['dof']]
+                con_dict[name] = {
+                    'limits': np.array(grp['limits']).tolist(),
+                    'payload': payload
+                }
+            self.constraints_panel.load_items(con_dict)
+
+            # -- Group 5: Simulation Options --
+            grp_sim = f['simulation']
+            
+            # Directly update the spinboxes in SimulationPanel
+            self.simulation_panel.t1_spin.setValue(grp_sim['time'].attrs['t1'])
+            self.simulation_panel.nt_spin.setValue(grp_sim['time'].attrs['Nt'])
+            self.simulation_panel.tol_spin.setValue(grp_sim['options'].attrs['tol'])
+            self.simulation_panel.max_steps_spin.setValue(grp_sim['options'].attrs['max_steps'])
+
+        print(f"Successfully loaded: {fname}")

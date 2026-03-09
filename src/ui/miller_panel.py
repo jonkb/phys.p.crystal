@@ -163,3 +163,72 @@ class MillerPanel(QWidget):
         else:
             return np.array([self.dir_h_b_spin.value(), self.dir_k_b_spin.value(), 
                              self.dir_i_b_spin.value(), self.dir_l_b_spin.value()])
+    
+    def set_plane_indices(self, indices):
+        """Set the plane spinboxes from an array of indices."""
+        if self.lattice_type == 'fcc' and len(indices) >= 3:
+            # Block signals so we don't trigger multiple UI updates
+            self.plane_h_spin.blockSignals(True)
+            self.plane_k_spin.blockSignals(True)
+            
+            self.plane_h_spin.setValue(int(indices[0]))
+            self.plane_k_spin.setValue(int(indices[1]))
+            
+            self.plane_h_spin.blockSignals(False)
+            self.plane_k_spin.blockSignals(False)
+            
+            # Setting the final spinbox will automatically fire plane_indices_changed
+            self.plane_l_spin.setValue(int(indices[2]))
+            
+        elif self.lattice_type == 'hcp' and len(indices) >= 3:
+            # HCP arrays are saved with 4 indices: [h, k, i, l]
+            l_val = int(indices[3]) if len(indices) >= 4 else int(indices[2])
+            
+            self.plane_h_b_spin.blockSignals(True)
+            self.plane_k_b_spin.blockSignals(True)
+            self.plane_l_b_spin.blockSignals(True)
+            
+            self.plane_h_b_spin.setValue(int(indices[0]))
+            self.plane_k_b_spin.setValue(int(indices[1]))
+            self.plane_l_b_spin.setValue(l_val)
+            
+            self.plane_h_b_spin.blockSignals(False)
+            self.plane_k_b_spin.blockSignals(False)
+            self.plane_l_b_spin.blockSignals(False)
+            
+            # This helper auto-calculates 'i' and emits the plane_indices_changed signal
+            self._update_plane_hcp_i()
+
+    def set_dir_indices(self, indices):
+        """Set the direction spinboxes from an array of indices."""
+        if self.lattice_type == 'fcc' and len(indices) >= 3:
+            self.dir_h_spin.blockSignals(True)
+            self.dir_k_spin.blockSignals(True)
+            
+            self.dir_h_spin.setValue(int(indices[0]))
+            self.dir_k_spin.setValue(int(indices[1]))
+            
+            self.dir_h_spin.blockSignals(False)
+            self.dir_k_spin.blockSignals(False)
+            
+            # Setting the final spinbox will automatically fire dir_indices_changed
+            self.dir_l_spin.setValue(int(indices[2]))
+            
+        elif self.lattice_type == 'hcp' and len(indices) >= 3:
+            # HCP arrays are saved with 4 indices: [h, k, i, l]
+            l_val = int(indices[3]) if len(indices) >= 4 else int(indices[2])
+            
+            self.dir_h_b_spin.blockSignals(True)
+            self.dir_k_b_spin.blockSignals(True)
+            self.dir_l_b_spin.blockSignals(True)
+            
+            self.dir_h_b_spin.setValue(int(indices[0]))
+            self.dir_k_b_spin.setValue(int(indices[1]))
+            self.dir_l_b_spin.setValue(l_val)
+            
+            self.dir_h_b_spin.blockSignals(False)
+            self.dir_k_b_spin.blockSignals(False)
+            self.dir_l_b_spin.blockSignals(False)
+            
+            # This helper auto-calculates 'i' and emits the dir_indices_changed signal
+            self._update_dir_hcp_i()

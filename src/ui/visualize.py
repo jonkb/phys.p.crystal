@@ -4,6 +4,7 @@
 import os
 import sys
 import numpy as np
+import h5py
 from PyQt6.QtWidgets import (
     QApplication, QMainWindow, QWidget, 
     QVBoxLayout, QHBoxLayout, QPushButton, 
@@ -226,11 +227,12 @@ def print_gpu_info():
 def plot_sol_file(path):
     """Plot the solution saved in the given file"""
 
-    ys = np.loadtxt(path, delimiter=',', skiprows=1)
-    Nt = ys.shape[0]
-    Nx = int(ys.shape[1]/6)
-    xs = np.reshape(ys[:, 0:3*Nx], (Nt,Nx,3))
-    app_plot_sol(xs)
+    msg_invalid = "The provided file was not a valid Crystal Physics result file"
+    with h5py.File(path, 'r') as f:
+        assert f.attrs["file_type"] == "simulation_result", msg_invalid
+        # Load result
+        xs = np.array(f["result"]["coords"])
+        app_plot_sol(xs)
 
 def app_plot_sol(data):
     """Plot the given solution"""

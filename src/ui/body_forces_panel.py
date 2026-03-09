@@ -6,7 +6,7 @@ Currently just atom_mass is contained here... under the justification that the
 """
 
 from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, 
-    QLabel, QMessageBox, QDoubleSpinBox)
+    QLabel, QDoubleSpinBox)
 
 class BodyForcesPanel(QWidget):
     def __init__(self, parent=None):

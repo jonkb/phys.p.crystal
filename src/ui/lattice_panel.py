@@ -12,6 +12,9 @@ class LatticePanel(QWidget):
     method_changed = pyqtSignal(str)
     randomize_requested = pyqtSignal()
     params_changed = pyqtSignal() 
+    # Display names & internal names
+    method_map = {"Random": "random", "FCC": "fcc", "HCP": "hcp"}
+    inv_method_map = {v: k for k, v in method_map.items()}
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -94,8 +97,7 @@ class LatticePanel(QWidget):
 
     def _on_combo_changed(self, text):
         """Handle internal visibility and tell the parent the method changed."""
-        method_map = {"Random": "random", "FCC": "fcc", "HCP": "hcp"}
-        self.current_method = method_map.get(text, "random")
+        self.current_method = self.method_map.get(text, "random")
         
         show_crystal = self.current_method in ['fcc', 'hcp']
         self.crystal_widget.setVisible(show_crystal)
@@ -112,3 +114,35 @@ class LatticePanel(QWidget):
         return [self.a_spin.value(), self.b_spin.value(), self.c_spin.value()]
     def get_euler_angles(self): 
         return [self.alpha_spin.value(), self.beta_spin.value(), self.gamma_spin.value()]
+
+    # --- Setters ---
+    def set_method(self, method_name):
+        """Sets the placement method dropdown."""
+        method_displayname = self.inv_method_map[method_name]
+        index = self.method_combo.findText(method_displayname)
+        if index >= 0:
+            self.method_combo.setCurrentIndex(index)
+        else:
+            print("Lattice placement method not found. Falling back to random.")
+            self.method_combo.setCurrentIndex(0)
+
+    def set_point_count(self, n):
+        """Sets the number of points for random placement."""
+        # Assuming you have a spinbox for N named 'N_spin'
+        self.N_spin.setValue(n)
+
+    def set_lattice_params(self, prms):
+        """Sets the lattice parameters [a, b, c]."""
+        # Assuming you have spinboxes for a, b, c
+        if len(prms) >= 3:
+            self.a_spin.setValue(float(prms[0]))
+            self.b_spin.setValue(float(prms[1]))
+            self.c_spin.setValue(float(prms[2]))
+
+    def set_euler_angles(self, angles):
+        """Sets the Euler rotation angles [phi, theta, psi]."""
+        # Assuming you have spinboxes for euler angles
+        if len(angles) >= 3:
+            self.alpha_spin.setValue(float(angles[0]))
+            self.beta_spin.setValue(float(angles[1]))
+            self.gamma_spin.setValue(float(angles[2]))

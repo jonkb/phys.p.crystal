@@ -130,6 +130,27 @@ class SelectRegionsPanel(QWidget):
 
     def get_items(self):
         return self.items_dict
+    
+    def load_items(self, new_items_dict):
+        """Replaces the current items dictionary and refreshes the UI dropdown."""
+        self.items_dict = new_items_dict
+        
+        self.combo.blockSignals(True)
+        self.combo.clear()
+        
+        # We already know our item_name (e.g., 'Force' or 'Constraint'), 
+        # so we can dynamically build the default text!
+        default_text = f"+ New {self.item_name}"
+        self.combo.addItem(default_text)
+        
+        # Add the saved items
+        self.combo.addItems(self.items_dict.keys())
+        
+        self.combo.blockSignals(False)
+        
+        # Trigger the UI to reset to the blank "+ New..." state
+        self.combo.setCurrentIndex(0)
+        self.on_selection_changed(default_text)
 
     # --- Methods to be overridden by subclasses ---
     def setup_custom_ui(self, layout): pass
