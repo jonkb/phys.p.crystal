@@ -2,11 +2,11 @@
 Simulate atoms in a crystal lattice
 
 ## Quick Start
-1. Run design_lattice.py to create a positions file
-2. Run sim.py to run the simulation
-3. Run visualize.py to view the results
+1. Run `main.py` to create an input file
+2. Run `sim.py [filename.inp.h5]` to run the simulation
 
-NOTE: For now, many things are still hard-coded in sim.py & visualize.py
+* To edit an existing input file, run `main.py [filename.inp.h5]`
+* To view an existing results file, run `main.py [filename.res.h5] -v`
 
 ## Installation
 See requirements.txt
