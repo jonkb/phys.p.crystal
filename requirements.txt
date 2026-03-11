@@ -1,7 +1,10 @@
 # For 3D rendering
 PyQt6
+# (GPU-accelerated) ODE integration
 jax
 diffrax
 equinox
-sympy # Not used, but imported in autoDyn
+# For symbolic functions
+sympy
+# Saving & Loading HDF5 files
 h5py

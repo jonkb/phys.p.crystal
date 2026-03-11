@@ -6,13 +6,16 @@ import os
 import argparse
 import h5py
 import numpy as np
+import sympy as sp
 import jax.numpy as jnp
+import jax
 
 #from config import data_dir
 from autoDyn import AutoEL, simulate
 from ui.visualize import app_plot_sol
 from util import tic, toc, isonow
-from lattice_energy import LJLagrangian
+from lattice_energy import LJLagrangian, MorseLagrangian
+from ui.forces_panel import ForcesPanel
 
 msg_load_err = "Invalid input file"
 
@@ -24,24 +27,59 @@ def in_region(limits, x0):
     return in_x & in_y & in_z
 
 def parse_applied_forces(force_dict, x0):
-    """ Convert a dictionary of (constant) applied forces to an (N,3) array
-    representing the resultant of all forces acting on the particles
+    """ 
+    Parses applied forces and returns a JAX-compatible function F_ext(t) 
+    that calculates the (N,3) force matrix for any given time t.
     """
-    # Initialize an array of zeros with the same shape as x0
-    F_resultant = np.zeros_like(x0, dtype=float)
+    regions = []
+    t_sym = sp.Symbol('t')
     
-    # Iterate over each applied force region
     for region_name, group in force_dict.items():
-        # Get the bounding box limits [3x2 array]
         limits = np.array(group['limits'])
         
         # Find which atoms fall within the bounding box
         mask = in_region(limits, x0)
+        mask_3d = jnp.broadcast_to(mask[:, None], x0.shape)
         
-        # Add the applied force to the atoms within the region
-        F_resultant[mask, :] += group.attrs['vector']
+        # Parse and compile the three SymPy strings
+        funcs = []
+        for lbl in ForcesPanel.fi_lbls:
+            expr_str = group.attrs[lbl]
+            try:
+                expr = sp.sympify(expr_str)
+                fn = sp.lambdify(t_sym, expr, modules='jax')
+                funcs.append(fn)
+            except Exception as e:
+                raise ValueError(f"Failed to compile {lbl} force expression '{expr_str}' in region '{region_name}': {e}")
         
-    return F_resultant
+        # Bundle them for this region
+        fx_fn, fy_fn, fz_fn = funcs
+        
+        # Test-fire the functions to ensure JIT compatibility
+        try:
+            _ = jax.jit(fx_fn)(jnp.array(0.0))
+            _ = jax.jit(fy_fn)(jnp.array(0.0))
+            _ = jax.jit(fz_fn)(jnp.array(0.0))
+        except Exception as e:
+            raise RuntimeError(f"JAX JIT compilation failed for forces in region '{region_name}': {e}")
+            
+        regions.append((mask_3d, fx_fn, fy_fn, fz_fn))
+
+    # Define the actual time-dependent force function for the solver loop
+    def F_ext_fn(t):
+        F_resultant = jnp.zeros_like(x0, dtype=float)
+        
+        for mask_3d, fx_fn, fy_fn, fz_fn in regions:
+            # Evaluate the three functions at time t
+            # Explicitly cast to float to prevent dtype mismatches if SymPy returns integers (e.g., from "0")
+            current_vector = jnp.array([fx_fn(t), fy_fn(t), fz_fn(t)], dtype=float)
+            
+            # Add the force vector to the atoms inside this region's mask
+            F_resultant = jnp.where(mask_3d, F_resultant + current_vector, F_resultant)
+            
+        return F_resultant
+
+    return F_ext_fn
 
 def parse_constraints(con_dict, x0):
     """ Convert a dictionary of constraints to an (N,3) boolean array
@@ -151,20 +189,23 @@ def run_simulation(inp_data):
     con = jnp.array(inp_data['constraints'])
     free_idx = jnp.where(~con)
 
-    # Lagrangian
-    #   TODO: Other potential functions
+    # Lagrangian function (Equinox Module)
     if inp_data['potential']['type'] == "Lennard-Jones":
         epsilon_depth = inp_data['potential']['epsilon_depth']
         sigma_r0 = inp_data['potential']['sigma_r0']
         L = LJLagrangian(free_idx, x0, atom_mass, epsilon_depth, sigma_r0)
+    elif inp_data['potential']['type'] == "Morse":
+        De_depth = inp_data['potential']['De_depth']
+        a_slope = inp_data['potential']['a_slope']
+        req = inp_data['potential']['req']
+        L = MorseLagrangian(free_idx, x0, atom_mass, De_depth, a_slope, req)
     else:
         print(f"Unsupported potential type: {inp_data['potential']['type']}")
         return
 
-    # Nonconservative forces (constant for now)
-    F_resultant = jnp.array(inp_data['applied_forces'])
-    Qnc_resultant = L.x_to_q(F_resultant)
-    Qnc = lambda t, q, qd: Qnc_resultant
+    # Nonconservative forces
+    F_appl = inp_data['applied_forces']
+    Qnc = lambda t, q, qd: L.x_to_q(F_appl(t))
 
     # Simulation parameters
     ts = jnp.linspace(0, t1, Nt)
@@ -176,7 +217,7 @@ def run_simulation(inp_data):
     Nx = x0.shape[0]
     Nq = q0.size
     print("Simulation parameters:")
-    print(f"\tParticles: {Nx} particles")
+    print(f"\tParticles: {Nx}")
     print(f"\tState variables: {Nq}")
     print(f"\tEnding time: {t1}")
 

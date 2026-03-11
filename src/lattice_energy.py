@@ -9,9 +9,17 @@ import equinox as eqx
 
 def potential_lj(r, s, u):
     """Lennard-Jones interatomic potential function"""
-    lj = lambda r: 4*u*((s/r)**12 - (s/r)**6)
+    #lj = lambda r: 4*u*((s/r)**12 - (s/r)**6)
+    lj = 4*u*((s/r)**12 - (s/r)**6)
     #return jnp.where(r>0, -2/r + 1/r**2, 0.0)
-    return jnp.where(r>0, lj(r), 0.0)
+    return jnp.where(r>0, lj, 0.0)
+    #return jnp.where(r>0, lj(r), 0.0)
+
+def potential_morse(r, De, a, req):
+    """Morse interatomic potential function"""
+    arg = -a*(r - req)
+    morse = De*(jnp.exp(2*arg) - 2*jnp.exp(arg))
+    return morse
 
 class LatticeLagrangian(eqx.Module):
     # Constants
@@ -94,3 +102,11 @@ class LJLagrangian(LatticeLagrangian):
         """Interatomic potential function"""
         return potential_lj(r, self.sigma_r0, self.epsilon_depth)
 
+class MorseLagrangian(LatticeLagrangian):
+    De_depth: float
+    a_slope: float
+    req: float
+
+    def potential(self, r):
+        """Interatomic potential function"""
+        return potential_lj(r, self.De_depth, self.a_slope, self.req)

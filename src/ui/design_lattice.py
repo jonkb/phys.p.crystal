@@ -437,13 +437,11 @@ class DesignLattice(QMainWindow):
             grp_fA = grp_force.create_group('applied')
             applied_forces = self.appl_forces_panel.get_items()
             for name, item_data in applied_forces.items():
-                grp_fi = grp_fA.create_group(name)
-                # Save the rectangular domain bounding box
-                grp_fi.create_dataset('limits', data=np.array(item_data['limits']))
-                # Save the vector components (x, y, z)
-                grp_fi.attrs['vector'] = item_data['payload']
-                #for axis, val in item_data['payload'].items():
-                #    grp_fi.attrs[axis] = val
+                force_grp = grp_fA.create_group(name)
+                force_grp.create_dataset('limits', data=np.array(item_data['limits']))
+                payload = item_data['payload']
+                for i, lbl in enumerate(ForcesPanel.fi_lbls):
+                    force_grp.attrs[lbl] = payload[i]
 
             # -- Group 4: Constraints --
             grp_fCn = f.create_group('constraints')
@@ -565,7 +563,8 @@ class DesignLattice(QMainWindow):
             # Applied Forces
             appl_dict = {}
             for name, grp in grp_force['applied'].items():
-                payload = list(grp.attrs['vector'])
+                # Read the 3 string expressions back out
+                payload = [str(grp.attrs[lbl]) for lbl in ForcesPanel.fi_lbls]
                 appl_dict[name] = {
                     'limits': np.array(grp['limits']).tolist(),
                     'payload': payload

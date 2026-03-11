@@ -3,60 +3,66 @@ Defines ForcesPanel: A widget for defining forces
 """
 
 from PyQt6.QtWidgets import (QVBoxLayout, QGridLayout, QLabel, QWidget,
-    QDoubleSpinBox, QMessageBox
+    QMessageBox, QLineEdit
 )
 from .select_regions_panel import SelectRegionsPanel
+import sympy as sp
 
 class ForcesPanel(SelectRegionsPanel):
+    fi_lbls = ['f_x', 'f_y', 'f_z']
+
     def __init__(self, initial_domain=None, parent=None):
         super().__init__(item_name="Force", initial_domain=initial_domain, parent=parent)
 
     def setup_custom_ui(self, layout):
-        """Inject the 3 vector spinboxes into the base layout."""
+        """Inject the force component inputs into the base layout."""
 
         vec_layout = QVBoxLayout()
-        vec_layout.addWidget(QLabel("<b>Vector (x, y, z):</b>"))
+        vec_layout.addWidget(QLabel("<b>Force Components:</b> (SymPy f_i(t))"))
 
         vec_wig = QWidget()
         vec_grid = QGridLayout(vec_wig)
         vec_grid.setContentsMargins(0, 0, 0, 0)
-        """
-        # Specify that the first column shrinks and the next two share evenly
-        vec_grid.setColumnStretch(0, 0)
-        vec_grid.setColumnStretch(1, 1)
-        vec_grid.setColumnStretch(2, 1)
-        """
         
-        self.spins = {}
-        for i, axis in enumerate(['x', 'y', 'z']):
-            spin = QDoubleSpinBox()
-            spin.setRange(-1e6, 1e6) # Allow large forces
-            spin.setDecimals(3)
-            spin.setSingleStep(0.1)
-            self.spins[axis] = spin
-            lbl = QLabel(f"{axis.upper()}:")
+        # Generate inputs for each force component
+        self.inputs = {}
+        for i, fi_lbl in enumerate(self.fi_lbls):
+            line_edit = QLineEdit("0.0")
+            line_edit.setPlaceholderText(f"e.g. 10*sin(t)")
+            self.inputs[fi_lbl] = line_edit
+            lbl = QLabel(f"{fi_lbl}:")
             vec_grid.addWidget(lbl, i, 0)
-            vec_grid.addWidget(spin, i, 1)
+            vec_grid.addWidget(line_edit, i, 1)
             
         vec_layout.addWidget(vec_wig)
         layout.addLayout(vec_layout)
 
     def clear_custom_ui(self):
-        for spin in self.spins.values():
-            spin.setValue(0.0)
+        for line_edit in self.inputs.values():
+            line_edit.setText("0.0")
 
     def load_custom_data(self, data):
-        for i, axis in enumerate(['x', 'y', 'z']):
-            self.spins[axis].setValue(data[i])
+        for i, fi_lbl in enumerate(self.fi_lbls):
+            self.inputs[fi_lbl].setText(data[i])
 
     def get_custom_data(self):
         # Force vector
-        return [spin.value() for spin in self.spins.values()]
+        return [self.inputs[lbl].text().strip() for lbl in self.fi_lbls]
 
     def validate_custom_data(self, data):
-        # Optional: ensure it's not a zero vector
-        if not any(data):
-            QMessageBox.warning(self, "Invalid Input", 
+        # Validate that SymPy can parse all three expressions
+        exprs = []
+        for i, expr_str in enumerate(data):
+            try:
+                exprs.append(sp.sympify(expr_str))
+            except Exception as e:
+                QMessageBox.warning(self, "Invalid Math", 
+                                    f"Could not parse the {self.fi_lbls[i]} expression:\n{e}")
+                return False
+        # Check if they're all zero
+        is_zero = [fi.simplify().is_zero for fi in exprs]
+        if all(is_zero):
+            QMessageBox.warning(self, "Invalid Input",
                 "Force vector cannot be zero in all directions.")
             return False
         return True
