@@ -218,7 +218,7 @@ def run_simulation(inp_data):
     Nq = q0.size
     print("Simulation parameters:")
     print(f"\tParticles: {Nx}")
-    print(f"\tState variables: {Nq}")
+    print(f"\tState variables: {Nq*2}")
     print(f"\tEnding time: {t1}")
 
     mod = AutoEL(L, Qnc)
