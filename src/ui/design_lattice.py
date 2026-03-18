@@ -181,11 +181,13 @@ class DesignLattice(QMainWindow):
 
             # Unit vector along direction
             vec = crystal.miller_vec(lattice_type, miller, lattice_prms, euler_angles)
+            # Center of domain
+            x0 = np.mean(domain, axis=1).reshape(1, -1)
 
             # Create points along the line
             num_points = int(L*20)
             t = np.linspace(-L/2, L/2, num_points)
-            line_points = t.reshape(-1, 1) * vec.reshape(1, -1)
+            line_points = x0 + t.reshape(-1, 1) * vec.reshape(1, -1)
             
             # Add points to the line series
             pt2item = lambda pt: QScatterDataItem(QVector3D(float(pt[0]), 
@@ -267,8 +269,8 @@ class DesignLattice(QMainWindow):
         self.graph.axes_limits(new_limits)
         # Update the scaling of the plane
         self.scale_plane()
-        # Regenerate the lattice to fill the domain
-        self.generate_spheres()
+        # Refresh all dependent visuals
+        self.refresh_lattice_visuals()
 
     def update_data(self, data_np):
         """Standard method to accept a (N, 3) NumPy array.
@@ -497,7 +499,8 @@ class DesignLattice(QMainWindow):
             limits = np.array(setup['domain_limits']).tolist()
             if hasattr(self.limits_panel, 'set_limits'):
                 self.limits_panel.set_limits(limits)
-            self.apply_limits(limits)
+            # Applied later because of the cascade of updates it causes
+            #self.apply_limits(limits)
             
             # Load Lattice Panel Settings
             self.lattice_panel.blockSignals(True)
@@ -516,6 +519,7 @@ class DesignLattice(QMainWindow):
             # Refresh points
             self.lattice_panel.blockSignals(False)
             self.lattice_panel.set_method(placement_method)
+            self.apply_limits(limits)
             # Compare generated points to stored points
             saved_coords = np.array(grp_lat['coordinates'])
             regen_coords = self.current_coords

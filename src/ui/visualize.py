@@ -104,9 +104,12 @@ class SphereGraph(Q3DScatter):
         self.setAspectRatio(ratio_hy)
         self.setHorizontalAspectRatio(ratio_xz)
         # Set grid line spacing
-        self.axisX().setSegmentCount(int(x_span / self.grid_spacing))
-        self.axisY().setSegmentCount(int(y_span / self.grid_spacing))
-        self.axisZ().setSegmentCount(int(z_span / self.grid_spacing))
+        N_xSeg = max(1, int(x_span / self.grid_spacing))
+        N_ySeg = max(1, int(y_span / self.grid_spacing))
+        N_zSeg = max(1, int(z_span / self.grid_spacing))
+        self.axisX().setSegmentCount(N_xSeg)
+        self.axisY().setSegmentCount(N_ySeg)
+        self.axisZ().setSegmentCount(N_zSeg)
 
 
 class SolPlotter(QMainWindow):
