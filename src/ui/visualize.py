@@ -30,11 +30,12 @@ def hline(parent):
     parent.addWidget(divider)
 
 class SphereGraph(Q3DScatter):
-    def __init__(self):
+    def __init__(self, num_colors=1):
         super().__init__()
 
         # Variables
         self.grid_spacing = 2
+        self.num_colors = num_colors
 
         # Camera setup
         self.setOrthoProjection(True)
@@ -44,12 +45,9 @@ class SphereGraph(Q3DScatter):
         self.setup_axes()
         self.axes_limits(np.array([(-8, 8), (-5, 5), (-3, 3)]))
 
-        # Setup the Series
-        self.series = QScatter3DSeries()
-        self.series.setMesh(QAbstract3DSeries.Mesh.MeshSphere)
-        self.series.setItemSize(0.12) 
-        self.series.setBaseColor(QColor(0, 180, 255))
-        self.addSeries(self.series)
+        # Setup the series (plural if num_colors > 1)
+        self.series_list = self.setup_series()
+        self.series = self.series_list[0]
 
         # Setup line series for direction visualization
         self.line_proxy = QScatterDataProxy()
@@ -69,6 +67,26 @@ class SphereGraph(Q3DScatter):
         self.axisZ().setTitleVisible(True)
         # Make coordinate system right-handed 
         self.axisZ().setReversed(True)
+    
+    def setup_series(self):
+        series_list = []
+        for i in range(self.num_colors):
+            series = QScatter3DSeries()
+            series.setMesh(QAbstract3DSeries.Mesh.MeshSphere)
+            series.setItemSize(0.12)
+            
+            if self.num_colors == 1:
+                # Default behavior: one color
+                series.setBaseColor(QColor(0, 180, 255))
+            else:
+                # Blue -> Red gradient for the Solution Plotter
+                fraction = i / (self.num_colors - 1)
+                hue = int((1.0 - fraction) * 255)
+                series.setBaseColor(QColor.fromHsv(hue, 255, 255))
+                
+            self.addSeries(series)
+            series_list.append(series)
+        return series_list
 
     def axes_limits(self, limits):
         self.limits = limits
@@ -109,9 +127,18 @@ class SolPlotter(QMainWindow):
         self.setWindowTitle("Solution Plotter")
         self.resize(1920, 1080)
 
+        # Find max distance
+        self.initial_coords = self.solution[0]
+        all_distances = np.linalg.norm(self.solution - self.initial_coords, axis=2)
+        self.max_dist = np.max(all_distances)
+        if self.max_dist == 0:
+            self.max_dist = 1.0  # Prevent division by zero
+
         # create 3D graph
-        self.graph = SphereGraph()
-        # adjust axes to cover all data at once
+        self.num_color_bins = 40
+        self.graph = SphereGraph(num_colors=self.num_color_bins)
+
+        # Adjust axes to cover all data at once
         all_pts = solution.reshape(-1, 3)
         mins = all_pts.min(axis=0)
         maxs = all_pts.max(axis=0)
@@ -175,14 +202,24 @@ class SolPlotter(QMainWindow):
         if idx >= self.Nt:
             idx = self.Nt - 1
         coords = self.solution[idx]
-        #proxy = QScatterDataProxy()
-        items = [
-            QScatterDataItem(QVector3D(float(x), float(y), float(z)))
-            for x, y, z in coords
-        ]
-        #proxy.addItems(items)
-        #self.graph.series.setDataProxy(proxy)
-        self.graph.series.dataProxy().resetArray(items)
+
+        # Calculate distances from initial coords
+        distances = np.linalg.norm(coords - self.initial_coords, axis=1)
+
+        # Sort items into bins, according to distance traveled
+        binned_items = [[] for _ in range(self.num_color_bins)]
+        for i, (x, y, z) in enumerate(coords):
+            # Calculate which color bin this atom belongs to
+            fraction = distances[i] / self.max_dist
+            bin_idx = int(fraction * (self.num_color_bins - 1))
+            bin_idx = max(0, min(bin_idx, self.num_color_bins - 1)) # Clamp to valid range
+            
+            item = QScatterDataItem(QVector3D(float(x), float(y), float(z)))
+            binned_items[bin_idx].append(item)
+            
+        # Update every series proxy simultaneously
+        for i, series in enumerate(self.graph.series_list):
+            series.dataProxy().resetArray(binned_items[i])
     
     def toggle_playback(self):
         if self.play_button.isChecked():

@@ -142,7 +142,12 @@ class DesignLattice(QMainWindow):
         # Add stretch to push controls to the top
         left_layout.addStretch()
         
-        # Add save button at the bottom of left panel
+        # Add load button
+        self.load_button = QPushButton("Load Input File")
+        self.load_button.setFixedHeight(40)
+        self.load_button.clicked.connect(self.prompt_load_inp)
+        left_layout.addWidget(self.load_button)
+        # Add save button
         self.save_button = QPushButton("Save Input File")
         self.save_button.setFixedHeight(40)
         self.save_button.clicked.connect(self.save_inp)
@@ -278,13 +283,11 @@ class DesignLattice(QMainWindow):
         # remember for export
         self.current_coords = data_np.copy()
 
-        new_proxy = QScatterDataProxy()
         items = []
         for row in data_np:
             items.append(QScatterDataItem(QVector3D(float(row[0]), float(row[1]), float(row[2]))))
         
-        new_proxy.addItems(items)
-        self.graph.series.setDataProxy(new_proxy)
+        self.graph.series.dataProxy().resetArray(items)
     
     def generate_spheres(self):
         """Generate sphere coordinates based on placement method."""
@@ -371,7 +374,7 @@ class DesignLattice(QMainWindow):
         default_name = f"sim_{isonow()}.inp.h5"
         default_path = os.path.join(data_dir, default_name)
         # Prompt for filename
-        fname, _ = QFileDialog.getSaveFileName(self, "Save positions",
+        fname, _ = QFileDialog.getSaveFileName(self, "Save input file",
                 default_path, "HDF5 Files (*.h5 *.hdf5)")
         if not fname:
             return
@@ -591,3 +594,11 @@ class DesignLattice(QMainWindow):
             self.simulation_panel.max_steps_spin.setValue(grp_sim['options'].attrs['max_steps'])
 
         print(f"Successfully loaded: {fname}")
+
+    def prompt_load_inp(self):
+        """Open a file dialog to select an HDF5 file to load."""
+        default_path = data_dir
+        fname, _ = QFileDialog.getOpenFileName(self, "Load input file",
+                default_path, "HDF5 Files (*.h5 *.hdf5)")
+        if fname:
+            self.load_inp(fname)
