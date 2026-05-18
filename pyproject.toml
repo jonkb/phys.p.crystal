@@ -10,8 +10,6 @@ dependencies = [
     "h5py>=3.16.0",
     "jax>=0.10.0",
     "matplotlib>=3.10.9",
-    "pyqt6>=6.11.0",
-    "pyqt6-datavisualization>=6.11.0",
     "sympy>=1.14.0",
 ]
 
@@ -19,3 +17,13 @@ dependencies = [
 cuda13 = [
     "jax[cuda13]>=0.10.0",
 ]
+
+[dependency-groups]
+gui = [
+    "pyqt6>=6.11.0",
+    "pyqt6-datavisualization>=6.11.0",
+]
+
+[tool.uv]
+default-groups = ["gui"]
+

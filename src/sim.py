@@ -12,10 +12,8 @@ import jax
 
 #from config import data_dir
 from autoDyn import AutoEL, simulate
-from ui.visualize import app_plot_sol
 from util import tic, toc, isonow
 from lattice_energy import LJLagrangian, MorseLagrangian
-from ui.forces_panel import ForcesPanel
 
 msg_load_err = "Invalid input file"
 
@@ -43,7 +41,8 @@ def parse_applied_forces(force_dict, x0):
         
         # Parse and compile the three SymPy strings
         funcs = []
-        for lbl in ForcesPanel.fi_lbls:
+        # Make sure this list matches ForcesPanel.fi_lbls
+        for lbl in ['f_x', 'f_y', 'f_z']:
             expr_str = group.attrs[lbl]
             try:
                 expr = sp.sympify(expr_str)
@@ -249,22 +248,26 @@ def main():
         description="Run a simulation on a pre-generated crystal lattice."
     )
     
-    # Positional argument (Required)
+    # Positional argument
     parser.add_argument(
         "inp_file", 
         type=str, 
         help="Path to the HDF5 input file (e.g., sim001.inp.h5)"
     )
-    
-    # Optional flag argument
+    # Optional arguments
     parser.add_argument(
         "-o", "--out_file", 
         type=str, 
         default=None,
         help="Path to save the output HDF5 results (e.g., sim001.res.h5)"
     )
+    parser.add_argument(
+        "--no_gui",
+        action="store_true",
+        help="Don't show the animated solution once the simulation is done"
+    )
 
-    # Parse what the user typed in the terminal
+    # Parse CLI arguments
     args = parser.parse_args()
 
     # Verify the file actually exists before trying to open it
@@ -298,7 +301,9 @@ def main():
     save_res(args.inp_file, args.out_file, ys, xs, t_wallclock)
 
     # Animate the results
-    app_plot_sol(xs)
+    if not args.no_gui:
+        from ui.visualize import app_plot_sol
+        app_plot_sol(xs)
 
 
 if __name__ == "__main__":

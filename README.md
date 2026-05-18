@@ -16,6 +16,8 @@ Alternatively, for manual installation with pip, run `pip install -r requirement
 The default JAX installation is CPU-only. If you have a NVIDIA GPU with CUDA 13, try `uv sync --extra cuda13`. This has not yet been tested, and some adjustments may be needed.
 For instructions on installing JAX on your machine, see https://docs.jax.dev/en/latest/installation.html
 
+To install on a CLI-only system with no Qt6 installation, run `uv sync --no-group gui`. In this case, main.py will fail, but sim.py should work with the option `--no_gui`.
+
 ## Data storage
 HDF5 files are used for storing two kinds of data:
 1. Lattice designer / simulation input files (*.inp.h5)
