@@ -9,8 +9,12 @@ Simulate atoms in a crystal lattice
 * To view an existing results file, run `main.py [filename.res.h5] -v`
 
 ## Installation
-See requirements.txt
-For instructions on installing JAX, see https://docs.jax.dev/en/latest/installation.html
+This project is managed with [uv](https://docs.astral.sh/uv/), so `uv sync` can be used to create the virtual environment with the required packages installed.
+
+Alternatively, for manual installation with pip, run `pip install -r requirements.txt`
+
+The default JAX installation is CPU-only. If you have a NVIDIA GPU with CUDA 13, try `uv sync --extra cuda13`. This has not yet been tested, and some adjustments may be needed.
+For instructions on installing JAX on your machine, see https://docs.jax.dev/en/latest/installation.html
 
 ## Data storage
 HDF5 files are used for storing two kinds of data:

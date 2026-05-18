@@ -1,0 +1,21 @@
+[project]
+name = "phys-p-crystal"
+version = "0.1.0"
+description = "Simulate atoms in a crystal lattice"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "diffrax>=0.7.2",
+    "equinox>=0.13.8",
+    "h5py>=3.16.0",
+    "jax>=0.10.0",
+    "matplotlib>=3.10.9",
+    "pyqt6>=6.11.0",
+    "pyqt6-datavisualization>=6.11.0",
+    "sympy>=1.14.0",
+]
+
+[project.optional-dependencies]
+cuda13 = [
+    "jax[cuda13]>=0.10.0",
+]

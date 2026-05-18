@@ -544,8 +544,8 @@ class DesignLattice(QMainWindow):
             self.miller_panel.plane_indices_changed.emit()
             self.miller_panel.dir_indices_changed.emit()
             # Don't block signals for the checkboxes
-            self.miller_panel.show_plane_cb.setChecked(grp_viz.attrs.get('plane_visible', False))
-            self.miller_panel.show_dir_cb.setChecked(grp_viz.attrs.get('direction_visible', False))
+            self.miller_panel.show_plane_cb.setChecked(bool(grp_viz.attrs.get('plane_visible', False)))
+            self.miller_panel.show_dir_cb.setChecked(bool(grp_viz.attrs.get('direction_visible', False)))
 
             # Load camera state, if it was saved
             if 'camera' in grp_viz:
