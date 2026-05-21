@@ -471,8 +471,9 @@ class DesignLattice(QMainWindow):
 
             # Solver options
             grp_simOpt = grp_sim.create_group('options')
-            grp_simOpt.attrs['tol'] = sim_data['options']['tol']
-            grp_simOpt.attrs['max_steps'] = sim_data['options']['max_steps']
+            grp_simOpt.attrs['irad'] = sim_data['options']['irad']
+            #grp_simOpt.attrs['tol'] = sim_data['options']['tol']
+            #grp_simOpt.attrs['max_steps'] = sim_data['options']['max_steps']
 
         # Success
         print("Simulation input file saved to:")
@@ -594,8 +595,10 @@ class DesignLattice(QMainWindow):
             # Directly update the spinboxes in SimulationPanel
             self.simulation_panel.t1_spin.setValue(grp_sim['time'].attrs['t1'])
             self.simulation_panel.nt_spin.setValue(grp_sim['time'].attrs['Nt'])
-            self.simulation_panel.tol_spin.setValue(grp_sim['options'].attrs['tol'])
-            self.simulation_panel.max_steps_spin.setValue(grp_sim['options'].attrs['max_steps'])
+            irad = grp_sim['options'].attrs.get('irad', 5.0)
+            self.simulation_panel.irad_spin.setValue(irad)
+            #self.simulation_panel.tol_spin.setValue(grp_sim['options'].attrs['tol'])
+            #self.simulation_panel.max_steps_spin.setValue(grp_sim['options'].attrs['max_steps'])
 
         print(f"Successfully loaded: {fname}")
 

@@ -9,11 +9,10 @@ import numpy as np
 import sympy as sp
 import jax.numpy as jnp
 import jax
+from jax_md import space, simulate
 
-#from config import data_dir
-from autoDyn import AutoEL, simulate
 from util import tic, toc, isonow
-from lattice_energy import LJLagrangian, MorseLagrangian
+from lattice_energy import get_energy_and_neighbor_fns
 
 msg_load_err = "Invalid input file"
 
@@ -133,11 +132,12 @@ def load_inp(input_filepath):
         inp_data['t1'] = grp_sim['time'].attrs['t1']
         inp_data['Nt'] = grp_sim['time'].attrs['Nt']
         # Casting to standard Python types solved a weird diffrax / jax error
-        inp_data['tol'] = float(grp_sim['options'].attrs['tol'])
-        inp_data['max_steps'] = int(grp_sim['options'].attrs['max_steps'])
+        #inp_data['tol'] = float(grp_sim['options'].attrs['tol'])
+        #inp_data['max_steps'] = int(grp_sim['options'].attrs['max_steps'])
+        inp_data['irad'] = float(grp_sim['options'].attrs.get('irad', 5.0))
     return inp_data
 
-def save_res(inp_file, out_file, ys, xs, t_wallclock):
+def save_res(inp_file, out_file, xs, t_wallclock):
     """Save simulation results
         HDF Hierarchy
         -------------
@@ -160,7 +160,6 @@ def save_res(inp_file, out_file, ys, xs, t_wallclock):
             # -- Group 2: Results --
             grp_res = f_out.create_group('result')
             grp_res.attrs['wallclock_time'] = t_wallclock
-            grp_res.create_dataset('states', data=ys, compression="gzip", chunks=True)
             grp_res.create_dataset('coords', data=xs, compression="gzip", chunks=True)
 
         except Exception as e:
@@ -181,93 +180,94 @@ def run_simulation(inp_data):
     atom_mass = inp_data['atom_mass']
     t1 = inp_data['t1']
     Nt = inp_data['Nt']
-    tol = inp_data['tol']
-    max_steps = inp_data['max_steps']
-
     # Array specifying which DOF are constrained
     con = jnp.array(inp_data['constraints'])
-    free_idx = jnp.where(~con)
-
-    # Lagrangian function (Equinox Module)
-    if inp_data['potential']['type'] == "Lennard-Jones":
-        epsilon_depth = inp_data['potential']['epsilon_depth']
-        sigma_r0 = inp_data['potential']['sigma_r0']
-        L = LJLagrangian(free_idx, x0, atom_mass, epsilon_depth, sigma_r0)
-    elif inp_data['potential']['type'] == "Morse":
-        De_depth = inp_data['potential']['De_depth']
-        a_slope = inp_data['potential']['a_slope']
-        req = inp_data['potential']['req']
-        L = MorseLagrangian(free_idx, x0, atom_mass, De_depth, a_slope, req)
-    else:
-        print(f"Unsupported potential type: {inp_data['potential']['type']}")
-        return
-
-    # Nonconservative forces
-    F_appl = inp_data['applied_forces']
-    Qnc = lambda t, q, qd: L.x_to_q(F_appl(t))
-
-    # Simulation parameters
-    ts = jnp.linspace(0, t1, Nt)
-    # Note the generalized coordinates q do not include the constrained DOF
-    q0 = L.x_to_q(x0)
-    qd0 = jnp.zeros_like(q0)
-    y0 = jnp.concatenate([q0, qd0])
+    F_appl = inp_data['applied_forces']   # Function returning (N,3) force array at time t
+    r_cutoff = inp_data['irad']  # Interaction cutoff radius
 
     Nx = x0.shape[0]
-    Nq = q0.size
+    dt = t1 / Nt
     print("Simulation parameters:")
     print(f"\tParticles: {Nx}")
-    print(f"\tState variables: {Nq*2}")
-    print(f"\tEnding time: {t1}")
+    print(f"\tEnding time: {t1}, Steps: {Nt}, Timestep: {dt:.3e}")
 
-    mod = AutoEL(L, Qnc)
+    # 1. Setup Space (Free boundary conditions)
+    displacement_fn, shift_fn = space.free()
 
-    # Run simulation
+    # 2. Setup Neighbor List and Interatomic Energy
+    box_size = jnp.max(x0) - jnp.min(x0) + 2.0 * r_cutoff
+    neighbor_fn, interatomic_energy_fn = get_energy_and_neighbor_fns(
+        displacement_fn, 
+        box_size, 
+        inp_data['potential'], 
+        r_cutoff
+    )
+
+    # 3. Define Total Energy (Interatomic + Applied External Forces)
+    def total_energy_fn(R, neighbor, t, **kwargs):
+        # Fix constrained DOF to initial positions
+        R_fixed = jnp.where(con, x0, R)
+
+        # Sparse nearest-neighbor interatomic potential
+        V_inter = interatomic_energy_fn(R_fixed, neighbor=neighbor)
+        
+        # Potential representation of the applied force: U = -F * x
+        F_ext = F_appl(t)
+        V_applied = -jnp.sum(F_ext * R_fixed)
+        
+        return V_inter + V_applied
+
+    # 4. Initialize Symplectic Integrator (Velocity Verlet)
+    init_fn, apply_fn = simulate.nve(total_energy_fn, shift_fn, dt=dt)
+    
+    # 5. Define the Simulation Step for lax.scan
+    @jax.jit
+    def step_fn(carry, t):
+        state, nbrs = carry
+        
+        # Update neighbor list (only rebuilds if particles moved outside the buffer)
+        nbrs = nbrs.update(state.position)
+        
+        # Step the NVE integrator
+        state = apply_fn(state, neighbor=nbrs, t=t)
+        
+        return (state, nbrs), state.position
+
+    # Allocate initial state and neighbor list
+    nbrs = neighbor_fn.allocate(x0)
+    key = jax.random.PRNGKey(0) 
+    state = init_fn(key, x0, kT=0.0, mass=atom_mass, neighbor=nbrs, t=0.0)
+
+    # 6. Run the Simulation Loop
+    ts = jnp.linspace(0, t1, Nt)
     toc(times, "Setup")
-    sol = simulate(mod, ts, y0, tol=tol, max_steps=max_steps)
+    (_, final_nbrs), xs = jax.lax.scan(step_fn, (state, nbrs), ts)
     toc(times, "Simulation")
     t_wallclock = times[-1] - times[-2]
 
-    # Save state vector at each timestep
-    ys = np.array(sol.ys)
-    #np.savetxt(out_path, ys, delimiter=',', header='x,y,z', comments='')
+    if final_nbrs.did_buffer_overflow:
+        print("WARNING: Neighbor list buffer overflowed! Increase capacity_multiplier.")
 
-    # Animate with visualize
-    #xs = np.reshape(ys[:, 0:3*Nx], (Nt,Nx,3))
-    qs = ys[:,0:Nq]
-    #xs = q_to_x(qs, free_idx, x0)
-    xs = np.array([L.q_to_x(qi) for qi in qs])
-
-    return ys, xs, t_wallclock
+    # Return trajectories
+    xs = np.array(xs)
+   
+    return xs, t_wallclock
 
 
-
-def main():
+if __name__ == "__main__":
     # Set up the argument parser
     parser = argparse.ArgumentParser(
         description="Run a simulation on a pre-generated crystal lattice."
     )
-    
-    # Positional argument
-    parser.add_argument(
-        "inp_file", 
-        type=str, 
+    parser.add_argument("inp_file", type=str, 
         help="Path to the HDF5 input file (e.g., sim001.inp.h5)"
     )
-    # Optional arguments
-    parser.add_argument(
-        "-o", "--out_file", 
-        type=str, 
-        default=None,
+    parser.add_argument("--out_file", type=str, default=None, 
         help="Path to save the output HDF5 results (e.g., sim001.res.h5)"
     )
-    parser.add_argument(
-        "--no_gui",
-        action="store_true",
+    parser.add_argument("--no_gui", action="store_true", 
         help="Don't show the animated solution once the simulation is done"
     )
-
-    # Parse CLI arguments
     args = parser.parse_args()
 
     # Verify the file actually exists before trying to open it
@@ -276,35 +276,28 @@ def main():
 
     # If not provided, build the output path automatically
     if args.out_file is None:
-        if args.inp_file[-3:] == ".h5":
-            if args.inp_file[-7:] == ".inp.h5":
-                inp_stem = args.inp_file[0:-7]
-            else:
-                inp_stem = args.inp_file[0:-3]
+        if args.inp_file.endswith(".inp.h5"):
+            inp_stem = args.inp_file[:-7]
+        elif args.inp_file.endswith(".h5"):
+            inp_stem = args.inp_file[:-3]
         else:
             print("WARNING: The input file doesn't end in .h5")
             inp_stem = args.inp_file
         args.out_file = f"{inp_stem}.res.h5"
-    else:
-        if args.out_file[-7:] != ".res.h5":
-            print("WARNING: By convention, simulation result files should end"
-                " in '.res.h5'")
+    elif not args.out_file.endswith(".res.h5"):
+        print("WARNING: By convention, simulation result files should end in '.res.h5'")
 
-    # Pull out the essential information from the input file
     print(f"Loading input file: {args.inp_file}")
     inp_data = load_inp(args.inp_file)
 
-    # Run simulation
-    ys, xs, t_wallclock = run_simulation(inp_data)
+    xs, t_wallclock = run_simulation(inp_data)
+    
+    print(f"Simulation completed in {t_wallclock:.2f} seconds.")
 
     # Save the results
-    save_res(args.inp_file, args.out_file, ys, xs, t_wallclock)
+    save_res(args.inp_file, args.out_file, xs, t_wallclock)
 
     # Animate the results
     if not args.no_gui:
         from ui.visualize import app_plot_sol
         app_plot_sol(xs)
-
-
-if __name__ == "__main__":
-    main()
